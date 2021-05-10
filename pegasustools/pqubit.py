@@ -8,6 +8,13 @@ not their illustrated topology. See Figs. 3,4 of Boothby et. al.
 
 """
 
+import numpy as np
+from typing import Union
+from dimod import ComposedSampler, BinaryQuadraticModel, Sampler, StructureComposite, Structured, \
+    bqm_structured
+import dwave_networkx as dnx
+import networkx as nx
+
 Pegasus0Shift = [2, 2, 10, 10, 6, 6, 6, 6, 2, 2, 10, 10]
 
 
@@ -127,7 +134,7 @@ class Pqubit:
         :param dk:
         :return:
         """
-        w2, k02, z2 = vert2horz(self.w, self.k) if self.is_vert_coord() else horz2vert(self.w, self.k)
+        w2, k02, z2 = vert2horz(self.w, self.k, self.z) if self.is_vert_coord() else horz2vert(self.w, self.k, self.z)
         return Pqubit(self.m, 1-self.u, w2, k02 + dk, z2, **kwargs)
 
     def conn_internal(self, dk):
@@ -150,15 +157,41 @@ class Pqubit:
         w2, k2, z2 = internal_coupling(self.u, self.w, self.k, self.z, j)
         return Pqubit(self.m, 1-self.u, w2, k2, z2, **kwargs)
 
+    def k44_indices(self):
+        """
+        Creates a list of the 8 linear indices of the K44 cell containing this qubit
+        By convention, a chimera K44 qubit index I%8 in [0, 8) is mapped to an index of a Pegasus K44 cell
+        in ascending linear order, i.e.
+          I%8:   0  1  2  3  4  5  6  7
+            u:   0  0  0  0  1  1  1  1
+          k%4:   0  1  2  3  0  1  2  3
+        :return:
+        """
+        if self.is_vert_coord():
+            dk_list = [0, 1, 2, 3]
+            horz_q = [self.conn_k44(dk) for dk in dk_list]
+            vert_q = [horz_q[0].conn_k44(dk) for dk in dk_list]
+            qlist = vert_q + horz_q
+            idx_list = [q.to_linear() for q in qlist]
+            return idx_list
+        else:
+            dk_list = [0, 1, 2, 3]
+            vert_q = [self.conn_k44(dk) for dk in dk_list]
+            horz_q = [vert_q[0].conn_k44(dk) for dk in dk_list]
+            qlist = vert_q + horz_q
+            idx_list = [q.to_linear() for q in qlist]
+            return idx_list
 
-def vert2horz(w, k):
+
+def vert2horz(w, k, z):
     """
     Gets the values of w, z, and k of the 4 vertical K_44 counterpart qubits
     to the vertical qubit in (u=0, w, k, z)
     """
     # Evaluate the raw XY coordinates from vertical coordinates
-    xv = 3 * w + (k//4)
-    yv = 2 + (2 * (k//4)) % 3
+    t = k // 4
+    xv = 3 * w + t
+    yv = 2 + 3*z + (2 * t) % 3
 
     # Convert
     z2 = (xv - 1)//3
@@ -167,14 +200,15 @@ def vert2horz(w, k):
     return w2, k02, z2
 
 
-def horz2vert(w, k):
+def horz2vert(w, k, z):
     """
     Gets values of w and z for the K_44 counterpart qubits
     to the horizontal qubit in (u=1, w, k, z)
     """
     #  Evaluate the raw XY coordinates from horizontal coordinates
-    xh = 1 + (2 * (k//4 + 2)) % 3
-    yh = 3 * w + (k//4)
+    t = k // 4
+    xh = 1 + 3*z + (2 * (t + 2)) % 3
+    yh = 3 * w + t
 
     z2 = (yh - 2) // 3
     w2 = xh // 3
@@ -207,6 +241,71 @@ def EmbedQACCoupling():
     pass
 
 
+def collect_available_unit_cells(m, nodes_list):
+    # nice coordinates of the graph
+    # (t, y, x, u, k) where 0 <= t < 3, 0 <= x, y < M-1, u=0,1, 0<=k<=3
+    w0 = [1, 0, 0]
+    unit_cells = {}
+    unavail_cells = 0
+    # Iterate over unit cells in vertical coordinates
+    for t in range(3):  # t = k // 4
+        for w in range(w0[t], m - 1 + w0[t]):
+            x = w - w0[t]
+            for z in range(m - 1):
+                k = 4 * t
+                q0 = Pqubit(m, 0, w, k, z)
+                k44_idxs = q0.k44_indices()
+                graph_idxs = []
+                for n in k44_idxs:
+                    if n in nodes_list:
+                        graph_idxs.append(n)
+                    else:
+                        # print(f"Skipping unit cell around (u=0,w={w},k={k},z={z})")
+                        unavail_cells += 1
+                        break
+                if len(graph_idxs) == len(k44_idxs):
+                    unit_cells[(t, x, z)] = graph_idxs
+
+    return unit_cells, unavail_cells
+
+
+class PegasusCellProblem(StructureComposite):
+
+    children = None
+    properties = None
+
+    def __init__(self, m, child_sampler: Union[Structured], random_fill=None):
+        logical_node_list = [i for i in range(7)]
+        logical_edge_list = [(0, 4), (0, 5), (0, 6), (0, 7),
+                             (1, 4), (1, 5), (1, 6), (1, 7),
+                             (2, 4), (2, 5), (2, 6), (2, 7),
+                             (3, 4), (3, 5), (3, 6), (3, 7)]
+
+        system: nx.Graph = dnx.pegasus_graph(m, node_list=child_sampler.structure.nodelist,
+                                   edge_list=child_sampler.structure.edgelist,
+                                   nice_coordinates=True)
+
+        unit_cells, unavail_cells = collect_available_unit_cells(m, system.nodes)
+
+        print(f"Available cells in the topology: {len(unit_cells)}")
+        print(f"Skipped cells: {unavail_cells}")
+        self.unit_cells = unit_cells
+
+        super(PegasusCellProblem, self).__init__(child_sampler, logical_node_list, logical_edge_list)
+
+    @bqm_structured
+    def sample(self, bqm: BinaryQuadraticModel, **parameters):
+        """
+
+        :param bqm:
+        :param parameters:
+        :return:
+        """
+        # [Decorator] Check that the problem can be embedded in an 8 qubit cell
+
+        # Gather
+
+
 def test_pqubit():
     # Assert that this makes a cycle
     q1 = Pqubit(3,  0, 0, 2, 0)  # u:0, w:0, k:2, z:0
@@ -220,4 +319,16 @@ def test_pqubit():
     q9 = q8.conn_internal(-2)  # u:0, w:0, k:2, z:0
 
     assert q1 == q9
+
+    chim1 = q3.k44_indices()
+    print()
+    print(chim1)
+
     return
+
+
+def test_pegasus_cell_problem():
+    from dwave.system import DWaveSampler
+    dws = DWaveSampler()
+    problem = PegasusCellProblem(16, dws)
+
