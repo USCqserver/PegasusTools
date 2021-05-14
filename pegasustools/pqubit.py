@@ -7,7 +7,7 @@ Note: Qubits are referred to as vertical or horizontal by their addressing metho
 not their illustrated topology. See Figs. 3,4 of Boothby et. al.
 
 """
-
+import dimod
 import numpy as np
 from typing import Union
 from dimod import ComposedSampler, BinaryQuadraticModel, Sampler, StructureComposite, Structured, \
@@ -241,7 +241,7 @@ def EmbedQACCoupling():
     pass
 
 
-def collect_available_unit_cells(m, nodes_list):
+def collect_available_unit_cells(m, nodes_list, edge_list):
     # nice coordinates of the graph
     # (t, y, x, u, k) where 0 <= t < 3, 0 <= x, y < M-1, u=0,1, 0<=k<=3
     w0 = [1, 0, 0]
@@ -255,16 +255,16 @@ def collect_available_unit_cells(m, nodes_list):
                 k = 4 * t
                 q0 = Pqubit(m, 0, w, k, z)
                 k44_idxs = q0.k44_indices()
-                graph_idxs = []
-                for n in k44_idxs:
-                    if n in nodes_list:
-                        graph_idxs.append(n)
+                edges = [(k44_idxs[i], k44_idxs[4+j]) for i in range(4) for j in range(4)]
+                if all(idx in nodes_list for idx in k44_idxs):
+                    if all(e in edge_list for e in edges):
+                        unit_cells[(t, x, z)] = k44_idxs
                     else:
-                        # print(f"Skipping unit cell around (u=0,w={w},k={k},z={z})")
+                        #print(f"* Unavailable edges for cell (u=0,w={w},k={k},z={z})")
                         unavail_cells += 1
-                        break
-                if len(graph_idxs) == len(k44_idxs):
-                    unit_cells[(t, x, z)] = graph_idxs
+                else:
+                    #print(f"Unavailable nodes for (u=0,w={w},k={k},z={z})")
+                    unavail_cells += 1
 
     return unit_cells, unavail_cells
 
@@ -275,20 +275,30 @@ class PegasusCellProblem(StructureComposite):
     properties = None
 
     def __init__(self, m, child_sampler: Union[Structured], random_fill=None):
-        logical_node_list = [i for i in range(7)]
+        logical_node_list = [i for i in range(8)]
         logical_edge_list = [(0, 4), (0, 5), (0, 6), (0, 7),
                              (1, 4), (1, 5), (1, 6), (1, 7),
                              (2, 4), (2, 5), (2, 6), (2, 7),
                              (3, 4), (3, 5), (3, 6), (3, 7)]
 
-        system: nx.Graph = dnx.pegasus_graph(m, node_list=child_sampler.structure.nodelist,
-                                   edge_list=child_sampler.structure.edgelist,
-                                   nice_coordinates=True)
-
-        unit_cells, unavail_cells = collect_available_unit_cells(m, system.nodes)
+        unit_cells, unavail_cells = collect_available_unit_cells(m, child_sampler.nodelist, child_sampler.edgelist)
 
         print(f"Available cells in the topology: {len(unit_cells)}")
         print(f"Skipped cells: {unavail_cells}")
+
+        if random_fill is not None:
+            if not random_fill > 0.0 and random_fill <= 1.0:
+                raise ValueError(f"Invalid value for random_fill: {random_fill}")
+            ncells = len(unit_cells)
+            m = int(random_fill*ncells)
+            print(f"Using random cell selection (f={random_fill}, m={m})")
+            rand_idxs = np.random.choice(np.arange(ncells), m, replace=False)
+            v_arr = list(unit_cells.keys())
+            sorted_idxs = list(rand_idxs)
+            sorted_idxs.sort()
+            v_selection = [v_arr[i] for i in sorted_idxs]
+            unit_cells_selection = {v: unit_cells[v] for v in v_selection}
+            unit_cells = unit_cells_selection
         self.unit_cells = unit_cells
 
         super(PegasusCellProblem, self).__init__(child_sampler, logical_node_list, logical_edge_list)
@@ -301,9 +311,52 @@ class PegasusCellProblem(StructureComposite):
         :param parameters:
         :return:
         """
-        # [Decorator] Check that the problem can be embedded in an 8 qubit cell
+        # todo: the variable names in this function are terrible
 
-        # Gather
+        # [Decorator] Check that the problem can be embedded in an 8 qubit cell
+        vartype = bqm.vartype
+        lin = {}
+        qua = {}
+        child: Union[Structured, Sampler] = self.child
+        cell_qubits = {}  # labels reference by the bqm
+        for v, cell in self.unit_cells.items():
+            for (i, j), J in bqm.quadratic.items():
+                edge = (cell[i], cell[j])
+                if edge[0] not in child.nodelist:
+                    raise RuntimeError(f"Node {edge[0]} not in node list")
+                if edge[1] not in child.nodelist:
+                    raise RuntimeError(f"Node {edge[1]} not in node list")
+                if edge not in child.edgelist:
+                    raise RuntimeError(f"Edge {edge} not in edge list")
+                qua[(cell[i], cell[j])] = J
+            for i, h in bqm.linear.items():
+                lin[cell[i]] = h
+            q = [cell[i] for i in bqm.variables]
+
+            cell_qubits[v] = q
+
+        sub_bqm = BinaryQuadraticModel(lin, qua, bqm.offset, vartype)
+        # submit the problem
+        sampleset: dimod.SampleSet = self.child.sample(sub_bqm, **parameters)
+
+        # Extract the solutions from individual unit cells, with the corresponding cell coordinate as a record entry
+        split_results = []
+        v_arr = []
+        vars = sampleset.variables
+        for v, cell in cell_qubits.items():
+            arr_idxs = np.asarray([vars.index[i] for i in cell])
+            #arr_idxs = np.asarray([cell])
+            cell_values = sampleset.record.sample[:, arr_idxs]
+            nsamps = cell_values.shape[0]
+            split_results.append(cell_values)
+            v_arr += [v] * nsamps
+        samples_arr = np.concatenate(split_results, axis=0)
+        # Evaluate the energies within each unit cell
+        energy_arr = bqm.energies((samples_arr, bqm.variables))
+        v_arr = np.asarray(v_arr)
+        sub_sampleset = dimod.SampleSet.from_samples(samples_arr, sampleset.vartype, energy_arr, cell=v_arr)
+
+        return sub_sampleset
 
 
 def test_pqubit():
@@ -330,5 +383,11 @@ def test_pqubit():
 def test_pegasus_cell_problem():
     from dwave.system import DWaveSampler
     dws = DWaveSampler()
-    problem = PegasusCellProblem(16, dws)
+
+    problem = PegasusCellProblem(16, dws, random_fill=0.1)
+    #bqm = BinaryQuadraticModel()
+    solution = problem.sample_ising({0: 0.2, 4: -0.2, 5: -0.2}, {(0, 4): 1.0, (0, 5): 1.0},
+                                    answer_mode='raw', num_reads=16)
+    print(solution)
+    return
 
