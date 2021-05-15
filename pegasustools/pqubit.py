@@ -241,7 +241,49 @@ def EmbedQACCoupling():
     pass
 
 
-def collect_available_unit_cells(m, nodes_list, edge_list):
+def check_qac_cell(q0: Pqubit, nodes_list, edge_list, register=0):
+    k44_idxs = q0.k44_indices()
+    if register == 0:
+        kl_idxs = k44_idxs[:3]
+        kp_idxs = k44_idxs[4:]
+    else:
+        kl_idxs = k44_idxs[4:7]
+        kp_idxs = k44_idxs[:4]
+    # Seeking exactly 3 logical qubits + 1 penalty qubit
+    # Logical qubits must be the first three qubits in the logical register by convention
+    if all(idx in nodes_list for idx in kl_idxs):
+        qac_spec = kl_idxs
+    else:
+        return None
+    # The penalty qubit has no external coupling and can be any of the available qubits in the physical register
+    for idx in kp_idxs:
+        if idx in nodes_list:
+            qac_spec.append(idx)
+            break
+    else:
+        return None
+    edges = [(qac_spec[i], qac_spec[3]) for i in range(3)]
+    edges = [(x, y) if x < y else (y, x) for x, y in edges]
+    # Finally return the QAC spec if all necessary couplings are available
+    if all(e in edge_list for e in edges):
+        return qac_spec
+    else:
+        return None
+
+
+def check_complete_cell(q0: Pqubit, nodes_list, edge_list):
+    k44_idxs = q0.k44_indices()
+    edges = [(k44_idxs[i], k44_idxs[4 + j]) for i in range(4) for j in range(4)]
+    if all(idx in nodes_list for idx in k44_idxs):
+        if all(e in edge_list for e in edges):
+            return k44_idxs
+        else:
+            return None
+    else:
+        return None
+
+
+def collect_available_unit_cells(m, nodes_list, edge_list, check='complete', register=0):
     # nice coordinates of the graph
     # (t, y, x, u, k) where 0 <= t < 3, 0 <= x, y < M-1, u=0,1, 0<=k<=3
     w0 = [1, 0, 0]
@@ -254,25 +296,21 @@ def collect_available_unit_cells(m, nodes_list, edge_list):
             for z in range(m - 1):
                 k = 4 * t
                 q0 = Pqubit(m, 0, w, k, z)
-                k44_idxs = q0.k44_indices()
-                edges = [(k44_idxs[i], k44_idxs[4+j]) for i in range(4) for j in range(4)]
-                if all(idx in nodes_list for idx in k44_idxs):
-                    if all(e in edge_list for e in edges):
-                        unit_cells[(t, x, z)] = k44_idxs
-                    else:
-                        #print(f"* Unavailable edges for cell (u=0,w={w},k={k},z={z})")
-                        unavail_cells += 1
+                if check == 'complete':
+                    idxs = check_complete_cell(q0, nodes_list, edge_list)
+                elif check == 'qac':
+                    idxs = check_qac_cell(q0, nodes_list, edge_list, register=register)
                 else:
-                    #print(f"Unavailable nodes for (u=0,w={w},k={k},z={z})")
+                    raise RuntimeError(f"Unrecognized argument check={check}")
+                if idxs is not None:
+                    unit_cells[(t, x, z)] = idxs
+                else:
                     unavail_cells += 1
 
     return unit_cells, unavail_cells
 
 
-class PegasusCellProblem(StructureComposite):
-
-    children = None
-    properties = None
+class PegasusCellEmbedding(StructureComposite):
 
     def __init__(self, m, child_sampler: Union[Structured], random_fill=None):
         logical_node_list = [i for i in range(8)]
@@ -301,7 +339,7 @@ class PegasusCellProblem(StructureComposite):
             unit_cells = unit_cells_selection
         self.unit_cells = unit_cells
 
-        super(PegasusCellProblem, self).__init__(child_sampler, logical_node_list, logical_edge_list)
+        super().__init__(child_sampler, logical_node_list, logical_edge_list)
 
     @bqm_structured
     def sample(self, bqm: BinaryQuadraticModel, **parameters):
@@ -359,6 +397,46 @@ class PegasusCellProblem(StructureComposite):
         return sub_sampleset
 
 
+class PegasusQACChainEmbedding(StructureComposite):
+    def __init__(self, m, child_sampler: Union[Structured], penalty=0.1, random_fill=None):
+        """
+
+        :param m:
+        :param child_sampler:
+        :param random_fill:
+        """
+
+        logical_node_list = [i for i in range(8)]
+        logical_edge_list = [(0, 1), (1, 2), (2, 3), (3, 4),
+                             (4, 5), (5, 6), (6, 7)]
+        unit_cells, unavail_cells = collect_available_unit_cells(m, child_sampler.nodelist, child_sampler.edgelist,
+                                                                 check='qac', register=1)
+        # Find contiguous chains of 8 logical qubits in the x direction, going through t and y coordinates
+        for t in range(3):
+            for y in range(m-1):
+                ty_cells = []
+                for x in range(m-1):
+                    #alternate available chains as much as possible
+                    if (t + y) % 2 == 1:
+                        x2 = m-1 - x
+                    else:
+                        x2 = x
+                    v = (t, y, x2)
+                    if v in unit_cells:
+                        ty_cells.append(v)
+                        if len(ty_cells) == 8:
+                            break
+                    else:
+                        ty_cells.clear()
+                        continue
+                if (t + y) % 2 == 1:
+                    ty_cells.reverse()
+                if len(ty_cells) == 8:
+                    print(f"Chain (t={t}, y={y}) placed at {ty_cells[0]}")
+
+        super().__init__(child_sampler, logical_node_list, logical_edge_list)
+
+
 def test_pqubit():
     # Assert that this makes a cycle
     q1 = Pqubit(3,  0, 0, 2, 0)  # u:0, w:0, k:2, z:0
@@ -384,10 +462,16 @@ def test_pegasus_cell_problem():
     from dwave.system import DWaveSampler
     dws = DWaveSampler()
 
-    problem = PegasusCellProblem(16, dws, random_fill=0.1)
+    problem = PegasusCellEmbedding(16, dws, random_fill=0.1)
     #bqm = BinaryQuadraticModel()
     solution = problem.sample_ising({0: 0.2, 4: -0.2, 5: -0.2}, {(0, 4): 1.0, (0, 5): 1.0},
                                     answer_mode='raw', num_reads=16)
     print(solution)
     return
 
+
+def test_pegasus_qac_problem():
+    from dwave.system import DWaveSampler
+    dws = DWaveSampler()
+
+    problem = PegasusQACChainEmbedding(16, dws)
