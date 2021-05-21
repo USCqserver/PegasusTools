@@ -7,6 +7,8 @@ Note: Qubits are referred to as vertical or horizontal by their addressing metho
 not their illustrated topology. See Figs. 3,4 of Boothby et. al.
 
 """
+import pickle
+import os
 import dimod
 import numpy as np
 from typing import Union
@@ -312,14 +314,24 @@ def collect_available_unit_cells(m, nodes_list, edge_list, check='complete', reg
 
 class PegasusCellEmbedding(StructureComposite):
 
-    def __init__(self, m, child_sampler: Union[Structured], random_fill=None):
+    def __init__(self, m, child_sampler: Union[Structured], random_fill=None, cache=True):
         logical_node_list = [i for i in range(8)]
         logical_edge_list = [(0, 4), (0, 5), (0, 6), (0, 7),
                              (1, 4), (1, 5), (1, 6), (1, 7),
                              (2, 4), (2, 5), (2, 6), (2, 7),
                              (3, 4), (3, 5), (3, 6), (3, 7)]
-
-        unit_cells, unavail_cells = collect_available_unit_cells(m, child_sampler.nodelist, child_sampler.edgelist)
+        # If using a cached embedding,
+        cache_path = ".pegasus_cell_embedding.dat"
+        if cache and os.path.isfile(cache_path):
+            print(f"Loading from {cache_path}")
+            with open(cache_path, 'rb') as f:
+                unit_cells, unavail_cells = self._load_cache(f)
+        else:
+            unit_cells, unavail_cells = collect_available_unit_cells(m, child_sampler.nodelist, child_sampler.edgelist)
+            if cache:
+                print(f"Saving unit cells to {cache_path}")
+                with open(cache_path, 'wb') as f:
+                    self._save_cache(f, (unit_cells, unavail_cells))
 
         print(f"Available cells in the topology: {len(unit_cells)}")
         print(f"Skipped cells: {unavail_cells}")
@@ -340,6 +352,14 @@ class PegasusCellEmbedding(StructureComposite):
         self.unit_cells = unit_cells
 
         super().__init__(child_sampler, logical_node_list, logical_edge_list)
+
+    @staticmethod
+    def _save_cache(fp, obj):
+        pickle.dump(obj, fp)
+
+    @staticmethod
+    def _load_cache(fp):
+        return pickle.load(fp)
 
     @bqm_structured
     def sample(self, bqm: BinaryQuadraticModel, **parameters):
