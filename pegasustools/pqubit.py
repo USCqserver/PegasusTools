@@ -13,7 +13,7 @@ import dimod
 import numpy as np
 from typing import Union
 from dimod import ComposedSampler, BinaryQuadraticModel, Sampler, StructureComposite, Structured, \
-    bqm_structured
+    bqm_structured, AdjArrayBQM, AdjVectorBQM
 import dwave_networkx as dnx
 import networkx as nx
 
@@ -150,7 +150,7 @@ class Pqubit:
         :param dk:
         :return:
         """
-        _, k0_cluster, _ = vert2horz(self.w, self.k) if self.is_vert_coord() else horz2vert(self.w, self.k)
+        _, k0_cluster, _ = vert2horz(self.w, self.k, self.z) if self.is_vert_coord() else horz2vert(self.w, self.k, self.z)
         j = (k0_cluster + dk) % 12
         w2, k2, z2 = internal_coupling(self.u, self.w, self.k, self.z, j)
         return Pqubit(self.m, 1 - self.u, w2, k2, z2)
@@ -393,7 +393,7 @@ class PegasusCellEmbedding(StructureComposite):
 
             cell_qubits[v] = q
 
-        sub_bqm = BinaryQuadraticModel(lin, qua, bqm.offset, vartype)
+        sub_bqm = AdjVectorBQM(lin, qua, bqm.offset, vartype)
         # submit the problem
         sampleset: dimod.SampleSet = self.child.sample(sub_bqm, **parameters)
 

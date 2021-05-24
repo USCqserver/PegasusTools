@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+import numpy.lib.recfunctions as rcf
 import pegasustools as pgt
 from pegasustools.util.adj import read_ising_adjacency
 from pegasustools.util.sched import interpret_schedule
@@ -43,9 +44,25 @@ if args.schedule is not None:
     dw_sampler.validate_anneal_schedule(sched)
 else:
     sched = None
-
 print("Constructing cell embedding...")
 cell_sampler = PegasusCellEmbedding(16, dw_sampler, cache=True)
+
+
+def profile():
+    print("Profiling cell embedding...")
+    import pstats, cProfile
+    cProfile.runctx("PegasusCellEmbedding(16, dw_sampler, cache=False)", globals(), locals(), "Profile.prof")
+    s = pstats.Stats("Profile.prof")
+    s.strip_dirs().sort_stats("time").print_stats()
+
+    print("Profiling sampling...")
+    cProfile.runctx("cell_sampler.sample(bqm, num_spin_reversal_transforms=1, num_reads=args.num_reads)",
+                    globals(), locals(), "samp.prof")
+    s = pstats.Stats("samp.prof")
+    s.strip_dirs().sort_stats("time").print_stats()
+
+profile()
+
 results_list = []
 
 print("Sampling...")
@@ -53,11 +70,15 @@ for i in range(args.reps):
     print(f"{i+1}/{args.reps}")
     results = cell_sampler.sample(bqm, num_spin_reversal_transforms=1, num_reads=args.num_reads)
     results = results.aggregate()
-    print(results)
     results_list.append(results.aggregate())
 
 all_results: dimod.SampleSet = dimod.concatenate(results_list)
 all_results = all_results.aggregate()
+sample = all_results.record.sample
+n_arr = pgt.util.ising_to_intlabel(sample)
+all_results = dimod.append_data_vectors(all_results, blabel=n_arr)
 print(all_results)
+print(sample)
+print(n_arr)
 
 

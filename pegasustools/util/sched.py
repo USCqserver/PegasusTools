@@ -1,6 +1,6 @@
 import scipy
 
-from scipy.special import betainc, betaincinv
+from scipy.special import betaincinv
 
 
 def beta_schedule(a, b, sc, lin_pnts, log_pnts):
