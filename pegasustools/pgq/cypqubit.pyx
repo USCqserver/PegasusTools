@@ -1,7 +1,7 @@
 # distutils: language = c++
 # cython: language_level = 3
 from cpython cimport array
-from .pqubit cimport Pqubit
+from pegasustools.pgq.pqubit cimport Pqubit
 import array
 
 from .util import vert2horz, horz2vert, internal_coupling

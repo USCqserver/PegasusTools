@@ -4,6 +4,7 @@
 #include <array>
 #include <tuple>
 #include <vector>
+#include <ostream>
 
 namespace pgq{
     int pegasus_0_shift[] = {2, 2, 10, 10, 6, 6, 6, 6, 2, 2, 10, 10};
@@ -43,6 +44,13 @@ namespace pgq{
         }
     }
 
+    // Thin wrappen around an array of 8 ints specifying the indices of a cell
+    struct qcell{
+        int idxs[8];
+        int& operator[](std::size_t i){return idxs[i];}
+        const int& operator[](std::size_t i) const {return idxs[i];}
+    };
+
     class Pqubit{
     public:
         int m;
@@ -50,6 +58,13 @@ namespace pgq{
 
         Pqubit() = default;
         Pqubit(int m, int u, int w, int k, int z): m(m), u(u), w(w), k(k), z(z) { }
+        bool operator==(const Pqubit &q){
+            return m == q.m && u == q.u && w == q.w && k == q.k && z == q.z;
+        }
+        bool operator!=(const Pqubit &q){
+            return !(*this == q);
+        }
+        friend std::ostream& operator<<(std::ostream& os, const Pqubit& q);
 
         int to_linear() const{
             return z + (m-1)*(k + 12 * (w + m + u));
@@ -76,14 +91,14 @@ namespace pgq{
             int k0_cluster;
             std::tie(std::ignore, k0_cluster, std::ignore) =
                     (is_vert_coord() ? vert2horz(w, k, z) : horz2vert(w, k, z));
-            int j = (k0_cluster + dk) % 12;
+            int j = (12 + k0_cluster + dk) % 12;
             int w2, k2, z2;
             std::tie(w2, k2, z2) = internal_coupling(u, w, k, z, j);
             return {m, 1-u, w2, k2, z2};
         }
         // conn_internal_abs
-        inline std::array<int, 8> k44_qubits() const{
-            std::array<int, 8> k44_arr{};
+        inline qcell k44_qubits() const{
+            qcell k44_arr{};
             if( is_vert_coord()){
                 Pqubit q2_arr[4];
                 for(int i = 0; i < 4; ++i){
@@ -107,10 +122,10 @@ namespace pgq{
         }
     };
 
-    std::vector<std::array<int, 8>> generate_regular_cell_grid(int m){
+    std::vector<qcell> generate_regular_cell_grid(int m){
         int w0[3] = {1, 0, 0};
 
-        std::vector<std::array<int, 8>> v;
+        std::vector<qcell> v;
         v.reserve(3*(m-1)*(m-1));
 
         for(int t = 0; t < 3; ++t){
@@ -119,13 +134,22 @@ namespace pgq{
                 for(int z = 0; z < m-1; ++z){
                     int k = 4*t;
                     Pqubit q0{m, 0, w, k, z};
-                    std::array<int, 8> k44 = q0.k44_qubits();
+                    qcell k44 = q0.k44_qubits();
                     v.push_back(k44);
                 }
             }
         }
 
         return v;
+    }
+
+    std::ostream& operator<<(std::ostream& os, const Pqubit& q){
+        if(q.is_vert_coord()){
+            return os << "Vert(M="<<q.m<<"[u=0, w: "<<q.w<<", k: "<<q.k<<", z: "<<q.z<<"])";
+        }
+        else{
+            return os << "Horz(M="<<q.m<<"[u=1, w: "<<q.w<<", k: "<<q.k<<", z: "<<q.z<<"])";
+        }
     }
 }
 
