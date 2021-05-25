@@ -5,6 +5,8 @@
 #include <tuple>
 #include <vector>
 #include <ostream>
+#include <map>
+#include <set>
 
 namespace pgq{
     int pegasus_0_shift[] = {2, 2, 10, 10, 6, 6, 6, 6, 2, 2, 10, 10};
@@ -141,6 +143,12 @@ namespace pgq{
         }
 
         return v;
+    }
+
+    std::pair<std::map<std::tuple<int, int, int>, qcell>, int > collect_available_unit_cells(
+        int m, std::set<int> nodes, std::set<std::pair<int, int>> edges
+    ){
+
     }
 
     std::ostream& operator<<(std::ostream& os, const Pqubit& q){

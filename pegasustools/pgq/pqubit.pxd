@@ -18,5 +18,6 @@ cdef extern from "pqubit.h" namespace "pgq":
         bool is_vert_coord()
         bool is_horz_coord()
         Pqubit conn_k44(int dk)
+        qcell k44_qubits()
         
     cdef vector[qcell] generate_regular_cell_grid(int m)

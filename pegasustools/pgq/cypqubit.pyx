@@ -1,11 +1,33 @@
 # distutils: language = c++
 # cython: language_level = 3
 from cpython cimport array
-from pegasustools.pgq.pqubit cimport Pqubit
+from libcpp.map import map
+from pegasustools.pgq.pqubit cimport Pqubit, qcell
 import array
 
-from .util import vert2horz, horz2vert, internal_coupling
+from .util import vert2horz, horz2vert, internal_coupling, Adjacency
 
+cdef collect_available_unit_cells(int m, Adjacency adj):
+    # nice coordinates of the graph
+    # (t, y, x, u, k) where 0 <= t < 3, 0 <= x, y < M-1, u=0,1, 0<=k<=3
+    cdef int w0[3] 
+    w0[:] = [1, 0, 0]
+
+    cdef map[(int, int, int), qcell] unit_cells
+
+    unavail_cells = 0
+    # Iterate over unit cells in vertical coordinates
+    for t in range(3):  # t = k // 4
+        for w in range(w0[t], m - 1 + w0[t]):
+            cdef int x = w - w0[t]
+            for z in range(m - 1):
+                cdef int k = 4 * t
+                cdef Pqubit q0 = Pqubit(m, 0, w, k, z)
+                cdef qcell idxs = q0.k44_qubits()
+                unit_cells[(t, x, z)] = idxs
+                
+
+    return unit_cells, unavail_cells
 
 cdef array.array a4 = array.array('i', [0, 1, 2, 3])
 cdef int[:] i4 = a4

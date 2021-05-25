@@ -1,7 +1,33 @@
 # distutils: language = c++
 # cython: language_level = 3
+from libcpp.vector cimport vector
+from libcpp.map cimport map
+from libcpp.set cimport set
+from libcpp.unordered_set cimport unordered_set
+from libcpp.util cimport pair
 
 Pegasus0Shift = [2, 2, 10, 10, 6, 6, 6, 6, 2, 2, 10, 10]
+
+
+cdef class Adjacency:
+    cdef unordered_set[int] nodes
+    cdef unordered_set[pair[int, int]] edges
+
+    def __cinit__(self, nodes, edges):
+        cdef size_t n = len(nodes)
+        cdef size_t e = len(edges)
+        self.nodes = set[int]()
+        self.edges = vector[pair[int, int]]()
+        self.nodes.reserve(n)
+        self.edges.reserve(e)
+        for nd in nodes:
+            self.nodes.insert(nd)
+        for ed in edges:
+            cdef pair[int, int] ed2(ed[0], ed[1])
+            self.edges.insert(ed)
+
+    cpdef is_node(int n):
+        return self.nodes.find(n) != self.nodes.end()
 
 
 cdef vert2horz(int w, int k, int z):
