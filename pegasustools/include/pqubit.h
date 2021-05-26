@@ -7,6 +7,7 @@
 #include <ostream>
 #include <map>
 #include <set>
+#include <unordered_map>
 
 namespace pgq{
     int pegasus_0_shift[] = {2, 2, 10, 10, 6, 6, 6, 6, 2, 2, 10, 10};
@@ -51,6 +52,14 @@ namespace pgq{
         int idxs[8];
         int& operator[](std::size_t i){return idxs[i];}
         const int& operator[](std::size_t i) const {return idxs[i];}
+    };
+
+    struct Pcoord{
+        int t, x, z;
+        Pcoord(int t, int x, int z): t(t), x(x), z(z) {}
+        inline bool operator==(const Pcoord& p) const { 
+            return t == p.t && x == p.x && z == p.z;
+        }
     };
 
     class Pqubit{
@@ -132,7 +141,7 @@ namespace pgq{
 
         for(int t = 0; t < 3; ++t){
             for(int w = w0[t]; w < m - 1 + w0[t]; ++w){
-                int x = w - w0[t];
+                //int x = w - w0[t];
                 for(int z = 0; z < m-1; ++z){
                     int k = 4*t;
                     Pqubit q0{m, 0, w, k, z};
@@ -159,6 +168,15 @@ namespace pgq{
             return os << "Horz(M="<<q.m<<"[u=1, w: "<<q.w<<", k: "<<q.k<<", z: "<<q.z<<"])";
         }
     }
+}
+
+namespace std{
+    template<> struct hash<pgq::Pcoord> {
+        inline size_t operator()(const pgq::Pcoord& p) const{
+            hash<int> int_hasher;
+            return int_hasher(p.t) ^ int_hasher(p.x) ^ int_hasher(p.z);
+        }
+    };
 }
 
 #endif

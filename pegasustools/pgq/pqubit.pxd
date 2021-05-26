@@ -8,10 +8,15 @@ cdef extern from "pqubit.h" namespace "pgq":
     cdef cppclass qcell:
             int idxs[8]
     
+    cdef cppclass Pcoord:
+        int t, w, x
+        Pcoord(int t, int w, int x)
+
     cdef cppclass Pqubit:
         int m
         int u, w, k, z
         Pqubit()
+        Pqubit(int m, int u, int w, int k, int z)
         int to_linear()
         Pqubit conn_external()
         Pqubit conn_odd()

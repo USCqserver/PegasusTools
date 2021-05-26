@@ -1,33 +1,50 @@
 # distutils: language = c++
 # cython: language_level = 3
 from cpython cimport array
-from libcpp.map import map
-from pegasustools.pgq.pqubit cimport Pqubit, qcell
+from libcpp cimport bool
+from libcpp.map cimport map
+from libcpp.set cimport set
+from libcpp.unordered_set cimport unordered_set
+from libcpp.unordered_map cimport unordered_map
+from pegasustools.pgq.pqubit cimport Pqubit, qcell, Pcoord
 import array
+from pegasustools.pgq.util import vert2horz, horz2vert, internal_coupling
+from pegasustools.pgq cimport util
 
-from .util import vert2horz, horz2vert, internal_coupling, Adjacency
+cdef bool in_nodes(int* q0, size_t nq, set[int] nodes):
+    for i in range(nq):
+        if nodes.find(q0[i]) == nodes.end():
+            return False
+    return True
 
-cdef collect_available_unit_cells(int m, Adjacency adj):
+
+cdef unordered_map[Pcoord, qcell] collect_available_unit_cells(int m, util.Adjacency adj):
     # nice coordinates of the graph
     # (t, y, x, u, k) where 0 <= t < 3, 0 <= x, y < M-1, u=0,1, 0<=k<=3
     cdef int w0[3] 
+    cdef int x, k
+    cdef Pqubit q0
+    cdef qcell q
+    cdef unordered_map[Pcoord, qcell] unit_cells
+    cdef int unavail_cells = 0
+
     w0[:] = [1, 0, 0]
-
-    cdef map[(int, int, int), qcell] unit_cells
-
-    unavail_cells = 0
+    
     # Iterate over unit cells in vertical coordinates
     for t in range(3):  # t = k // 4
         for w in range(w0[t], m - 1 + w0[t]):
-            cdef int x = w - w0[t]
+            x = w - w0[t]
             for z in range(m - 1):
-                cdef int k = 4 * t
-                cdef Pqubit q0 = Pqubit(m, 0, w, k, z)
-                cdef qcell idxs = q0.k44_qubits()
-                unit_cells[(t, x, z)] = idxs
+                k = 4 * t
+                q0 = Pqubit(m, 0, w, k, z)
+                q = q0.k44_qubits()
+                if in_nodes(q.idxs, 8, adj.nodes):
+                    unit_cells[Pcoord(t, x, z)] = q
+                else:
+                    unavail_cells += 1
                 
 
-    return unit_cells, unavail_cells
+    return unit_cells
 
 cdef array.array a4 = array.array('i', [0, 1, 2, 3])
 cdef int[:] i4 = a4
