@@ -1,4 +1,5 @@
 from setuptools import setup, Extension
+#from distutils.core import setup, Extension
 from Cython.Build import cythonize
 
 extensions = [
@@ -10,5 +11,5 @@ extensions = [
 
 setup(
     name="Pegasus Tools",
-    ext_modules=cythonize(extensions),
+    ext_modules=cythonize(extensions, annotate=True),
 )

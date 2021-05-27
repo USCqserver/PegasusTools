@@ -1,5 +1,5 @@
 # distutils: language = c++
-# distutils: include_dirs = pegasustools/include
+# distutils: include_dirs = include
 # cython: language_level = 3
 from libcpp cimport bool
 from libcpp.vector cimport vector
