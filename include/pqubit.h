@@ -67,7 +67,7 @@ namespace pgq{
         friend std::ostream& operator<<(std::ostream& os, const Pqubit& q);
 
         int to_linear() const{
-            return z + (m-1)*(k + 12 * (w + m + u));
+            return z + (m-1)*(k + 12 * (w + m*u));
         }
         Pqubit conn_external(int dz=1) const{
             return {m, u, w, k, z + dz};
@@ -142,6 +142,19 @@ namespace pgq{
 
         return v;
     }
+
+    struct CellGrid{
+        int m;
+        std::vector<qcell> grid;
+        CellGrid() = default;
+        CellGrid(int m) : m(m){
+            grid = generate_regular_cell_grid(m);
+        }
+        const qcell& get(size_t t, size_t x, size_t z) const{
+            size_t idx = (m-1)*(m-1)*t + (m-1)*x + z;
+            return grid[idx];
+        }
+    };
 
     std::ostream& operator<<(std::ostream& os, const Pqubit& q){
         if(q.is_vert_coord()){

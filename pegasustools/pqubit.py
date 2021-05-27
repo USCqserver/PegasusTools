@@ -14,6 +14,7 @@ import numpy as np
 from typing import Union
 from dimod import ComposedSampler, BinaryQuadraticModel, Sampler, StructureComposite, Structured, \
     bqm_structured, AdjArrayBQM, AdjVectorBQM
+from .pgq import collect_complete_unit_cells
 import dwave_networkx as dnx
 import networkx as nx
 
@@ -327,6 +328,7 @@ class PegasusCellEmbedding(StructureComposite):
             with open(cache_path, 'rb') as f:
                 unit_cells, unavail_cells = self._load_cache(f)
         else:
+            #unit_cells, unavail_cells = collect_complete_unit_cells(m, child_sampler.nodelist, child_sampler.edgelist)
             unit_cells, unavail_cells = collect_available_unit_cells(m, child_sampler.nodelist, child_sampler.edgelist)
             if cache:
                 print(f"Saving unit cells to {cache_path}")
