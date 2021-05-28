@@ -45,7 +45,7 @@ if args.schedule is not None:
 else:
     sched = None
 print("Constructing cell embedding...")
-cell_sampler = PegasusCellEmbedding(16, dw_sampler, cache=True)
+cell_sampler = PegasusCellEmbedding(16, dw_sampler, cache=False)
 
 
 def profile():
@@ -53,32 +53,40 @@ def profile():
     import pstats, cProfile
     cProfile.runctx("PegasusCellEmbedding(16, dw_sampler, cache=False)", globals(), locals(), "Profile.prof")
     s = pstats.Stats("Profile.prof")
-    s.strip_dirs().sort_stats("time").print_stats()
+    s.strip_dirs().sort_stats("cumulative").print_stats()
 
     print("Profiling sampling...")
-    cProfile.runctx("cell_sampler.sample(bqm, num_spin_reversal_transforms=1, num_reads=args.num_reads)",
+    cProfile.runctx("cell_sampler.sample(bqm, num_spin_reversal_transforms=1, num_reads=args.num_reads).aggregate()",
                     globals(), locals(), "samp.prof")
     s = pstats.Stats("samp.prof")
-    s.strip_dirs().sort_stats("time").print_stats()
+    s.strip_dirs().sort_stats("cumulative").print_stats()
 
-profile()
+#profile()
 
 results_list = []
 
 print("Sampling...")
+# Collect the futures for each repetition
 for i in range(args.reps):
-    print(f"{i+1}/{args.reps}")
     results = cell_sampler.sample(bqm, num_spin_reversal_transforms=1, num_reads=args.num_reads)
-    results = results.aggregate()
-    results_list.append(results.aggregate())
+    results_list.append(results)
 
-all_results: dimod.SampleSet = dimod.concatenate(results_list)
+# Aggregate the results as they become available
+aggr_results = []
+for i, result in enumerate(results_list):
+    print(f"{i+1}/{args.reps}")
+    aggr_results.append(result.aggregate())
+
+all_results: dimod.SampleSet = dimod.concatenate(aggr_results)
 all_results = all_results.aggregate()
 sample = all_results.record.sample
 n_arr = pgt.util.ising_to_intlabel(sample)
 all_results = dimod.append_data_vectors(all_results, blabel=n_arr)
 print(all_results)
-print(sample)
-print(n_arr)
+
+df = all_results.to_pandas_dataframe()
+print(df[["blabel", "num_occurrences", "energy"]])
+#print(sample)
+#print(n_arr)
 
 

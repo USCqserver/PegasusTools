@@ -313,6 +313,53 @@ def collect_available_unit_cells(m, nodes_list, edge_list, check='complete', reg
     return unit_cells, unavail_cells
 
 
+def _embed_unit_cells(bqm: BinaryQuadraticModel, unit_cells: dict, nodelist, edgelist):
+    vartype = bqm.vartype
+    lin = {}
+    qua = {}
+    cell_qubits = {}  # labels referenced by the bqm
+    for v, cell in unit_cells.items():
+        for (i, j), J in bqm.quadratic.items():
+            edge = (cell[i], cell[j])
+            # if edge[0] not in nodelist:
+            #     raise RuntimeError(f"Node {edge[0]} not in node list")
+            # if edge[1] not in nodelist:
+            #     raise RuntimeError(f"Node {edge[1]} not in node list")
+            # if edge not in edgelist:
+            #     raise RuntimeError(f"Edge {edge} not in edge list")
+            qua[(cell[i], cell[j])] = J
+        for i, h in bqm.linear.items():
+            lin[cell[i]] = h
+        q = [cell[i] for i in bqm.variables]
+
+        cell_qubits[v] = q
+
+    sub_bqm = AdjVectorBQM(lin, qua, bqm.offset, vartype)
+    return sub_bqm, cell_qubits
+
+
+# Extract the solutions from individual unit cells, with the corresponding cell coordinate as a record entry
+def _extract_unit_cells_solutions(sampleset: dimod.SampleSet, cell_qubits: dict, bqm: BinaryQuadraticModel):
+    split_results = []
+    #v_arr = []
+    vars = sampleset.variables
+    for v, cell in cell_qubits.items():
+        arr_idxs = np.asarray([vars.index[i] for i in cell])
+        #arr_idxs = np.asarray([cell])
+        cell_values = sampleset.record.sample[:, arr_idxs]
+        #nsamps = cell_values.shape[0]
+        split_results.append(cell_values)
+        #v_arr += [v] * nsamps
+    samples_arr = np.concatenate(split_results, axis=0)
+
+    # Evaluate the energies within each unit cell
+    energy_arr = bqm.energies((samples_arr, bqm.variables))
+    #v_arr = np.asarray(v_arr)
+    sub_sampleset = dimod.SampleSet.from_samples(samples_arr, sampleset.vartype, energy_arr)
+
+    return sub_sampleset
+
+
 class PegasusCellEmbedding(StructureComposite):
 
     def __init__(self, m, child_sampler: Union[Structured], random_fill=None, cache=True):
@@ -321,6 +368,8 @@ class PegasusCellEmbedding(StructureComposite):
                              (1, 4), (1, 5), (1, 6), (1, 7),
                              (2, 4), (2, 5), (2, 6), (2, 7),
                              (3, 4), (3, 5), (3, 6), (3, 7)]
+        self._child_nodes = set(child_sampler.nodelist)
+        self._child_edges = set(child_sampler.edgelist)
         # If using a cached embedding,
         cache_path = ".pegasus_cell_embedding.dat"
         if cache and os.path.isfile(cache_path):
@@ -329,7 +378,7 @@ class PegasusCellEmbedding(StructureComposite):
                 unit_cells, unavail_cells = self._load_cache(f)
         else:
             #unit_cells, unavail_cells = collect_complete_unit_cells(m, child_sampler.nodelist, child_sampler.edgelist)
-            unit_cells, unavail_cells = collect_available_unit_cells(m, child_sampler.nodelist, child_sampler.edgelist)
+            unit_cells, unavail_cells = collect_available_unit_cells(m, self._child_nodes, self._child_edges)
             if cache:
                 print(f"Saving unit cells to {cache_path}")
                 with open(cache_path, 'wb') as f:
@@ -371,52 +420,17 @@ class PegasusCellEmbedding(StructureComposite):
         :param parameters:
         :return:
         """
-        # todo: the variable names in this function are terrible
-
         # [Decorator] Check that the problem can be embedded in an 8 qubit cell
-        vartype = bqm.vartype
-        lin = {}
-        qua = {}
-        child: Union[Structured, Sampler] = self.child
-        cell_qubits = {}  # labels reference by the bqm
-        for v, cell in self.unit_cells.items():
-            for (i, j), J in bqm.quadratic.items():
-                edge = (cell[i], cell[j])
-                if edge[0] not in child.nodelist:
-                    raise RuntimeError(f"Node {edge[0]} not in node list")
-                if edge[1] not in child.nodelist:
-                    raise RuntimeError(f"Node {edge[1]} not in node list")
-                if edge not in child.edgelist:
-                    raise RuntimeError(f"Edge {edge} not in edge list")
-                qua[(cell[i], cell[j])] = J
-            for i, h in bqm.linear.items():
-                lin[cell[i]] = h
-            q = [cell[i] for i in bqm.variables]
-
-            cell_qubits[v] = q
-
-        sub_bqm = AdjVectorBQM(lin, qua, bqm.offset, vartype)
+         
+        sub_bqm, cell_qubits = _embed_unit_cells(bqm, self.unit_cells, self._child_nodes, self._child_edges)
+        
         # submit the problem
         sampleset: dimod.SampleSet = self.child.sample(sub_bqm, **parameters)
-
-        # Extract the solutions from individual unit cells, with the corresponding cell coordinate as a record entry
-        split_results = []
-        v_arr = []
-        vars = sampleset.variables
-        for v, cell in cell_qubits.items():
-            arr_idxs = np.asarray([vars.index[i] for i in cell])
-            #arr_idxs = np.asarray([cell])
-            cell_values = sampleset.record.sample[:, arr_idxs]
-            nsamps = cell_values.shape[0]
-            split_results.append(cell_values)
-            v_arr += [v] * nsamps
-        samples_arr = np.concatenate(split_results, axis=0)
-        # Evaluate the energies within each unit cell
-        energy_arr = bqm.energies((samples_arr, bqm.variables))
-        v_arr = np.asarray(v_arr)
-        sub_sampleset = dimod.SampleSet.from_samples(samples_arr, sampleset.vartype, energy_arr, cell=v_arr)
-
-        return sub_sampleset
+        
+        def _hook(future_sampleset):
+            return _extract_unit_cells_solutions(future_sampleset, cell_qubits, bqm)
+        
+        return dimod.SampleSet.from_future(sampleset, _hook)
 
 
 class PegasusQACChainEmbedding(StructureComposite):
