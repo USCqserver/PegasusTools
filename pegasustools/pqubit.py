@@ -39,8 +39,15 @@ class Pqubit:
                   0 <= z <= M-2
         """
         check_str = self._check_if_not_valid(m, u, w, k, z)
+        self.m = m
+        self.u = u
+        self.w = w
+        self.k = k
+        self.z = z
+
         if assert_valid:
             if check_str is not None:
+                self._valid_coord = False
                 raise ValueError(check_str)
             self._valid_coord = True
         else:
@@ -50,12 +57,6 @@ class Pqubit:
             else:
                 self._valid_coord = True
                 self._check_str = None
-
-        self.m = m
-        self.u = u
-        self.w = w
-        self.k = k
-        self.z = z
 
     def __repr__(self):
         if not self._valid_coord:
@@ -294,8 +295,8 @@ def collect_available_unit_cells(m, nodes_list, edge_list, check='complete', reg
     unavail_cells = 0
     # Iterate over unit cells in vertical coordinates
     for t in range(3):  # t = k // 4
-        for w in range(w0[t], m - 1 + w0[t]):
-            x = w - w0[t]
+        for x in range(m - 1):
+            w = x + w0[t]
             for z in range(m - 1):
                 k = 4 * t
                 q0 = Pqubit(m, 0, w, k, z)
@@ -433,45 +434,6 @@ class PegasusCellEmbedding(StructureComposite):
         return dimod.SampleSet.from_future(sampleset, _hook)
 
 
-class PegasusQACChainEmbedding(StructureComposite):
-    def __init__(self, m, child_sampler: Union[Structured], penalty=0.1, random_fill=None):
-        """
-
-        :param m:
-        :param child_sampler:
-        :param random_fill:
-        """
-
-        logical_node_list = [i for i in range(8)]
-        logical_edge_list = [(0, 1), (1, 2), (2, 3), (3, 4),
-                             (4, 5), (5, 6), (6, 7)]
-        unit_cells, unavail_cells = collect_available_unit_cells(m, child_sampler.nodelist, child_sampler.edgelist,
-                                                                 check='qac', register=1)
-        # Find contiguous chains of 8 logical qubits in the x direction, going through t and y coordinates
-        for t in range(3):
-            for y in range(m-1):
-                ty_cells = []
-                for x in range(m-1):
-                    #alternate available chains as much as possible
-                    if (t + y) % 2 == 1:
-                        x2 = m-1 - x
-                    else:
-                        x2 = x
-                    v = (t, y, x2)
-                    if v in unit_cells:
-                        ty_cells.append(v)
-                        if len(ty_cells) == 8:
-                            break
-                    else:
-                        ty_cells.clear()
-                        continue
-                if (t + y) % 2 == 1:
-                    ty_cells.reverse()
-                if len(ty_cells) == 8:
-                    print(f"Chain (t={t}, y={y}) placed at {ty_cells[0]}")
-
-        super().__init__(child_sampler, logical_node_list, logical_edge_list)
-
 
 def test_pqubit():
     # Assert that this makes a cycle
@@ -505,9 +467,3 @@ def test_pegasus_cell_problem():
     print(solution)
     return
 
-
-def test_pegasus_qac_problem():
-    from dwave.system import DWaveSampler
-    dws = DWaveSampler()
-
-    problem = PegasusQACChainEmbedding(16, dws)
