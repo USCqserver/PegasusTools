@@ -1,4 +1,5 @@
 import argparse
+import pandas as pd
 import numpy as np
 import numpy.lib.recfunctions as rcf
 import pegasustools as pgt
@@ -7,30 +8,31 @@ from pegasustools.util.sched import interpret_schedule
 from pegasustools.pqubit import PegasusCellEmbedding
 from dwave.system import DWaveSampler
 import dimod
-from dimod import SpinReversalTransformComposite
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--verbose", action='store_true')
+parser.add_argument("-v", "--verbose", action='store_true')
 parser.add_argument("--targets", nargs='+', type=int, help="The list of target logical states to keep track of.")
 parser.add_argument("--tf", type=float, help="The anneal time for a simple annealing schedule.", default=20.0)
 parser.add_argument("--schedule", nargs='+', help="Anneal schedule specification ")
-parser.add_argument("--num-reads", type=int, default=64,
+parser.add_argument("-n","--num-reads", type=int, default=64,
                     help="Number of solution readouts per repetition")
 parser.add_argument("--reps", type=int, default=1,
                     help="Number of repetitions of data collection")
-parser.add_argument("--rand-gauge", action='store_true',
+parser.add_argument("-R", "--rand-gauge", action='store_true',
                     help="Use a random gauge (spin reversal transformation) every repetition")
 parser.add_argument("--rev-init", type=int,
                     help="Initial state for reverse annealing")
+parser.add_argument("--scale-j", type=float, default=1.0,
+                    help="Rescale all biases and couplings as J / scale_J")
 parser.add_argument("problem",
                     help="A cell problem, specified in a text file with three columns with the adjacency list")
-parser.add_argument("output", help="Output file to print summary of samples.")
+parser.add_argument("output", help="Prefix for output data")
 
 args = parser.parse_args()
 
 # Import the problem and prepare the BQM
 problem_file = args.problem
-bqm = read_ising_adjacency(problem_file)
+bqm = read_ising_adjacency(problem_file, args.scale_j)
 print(bqm)
 
 # Connect to the DW sampler
@@ -84,8 +86,16 @@ n_arr = pgt.util.ising_to_intlabel(sample)
 all_results = dimod.append_data_vectors(all_results, blabel=n_arr)
 print(all_results)
 
-df = all_results.to_pandas_dataframe()
+df : pd.DataFrame = all_results.to_pandas_dataframe()
+df2 = df[["blabel", "num_occurrences", "energy"]]
 print(df[["blabel", "num_occurrences", "energy"]])
+csv_path = f"{args.output}_samps.csv"
+sched_path = f"{args.output}_sched.csv"
+with open(csv_path, 'w') as f:
+    df2.to_csv(f, index=False)
+
+sched_arr = np.asarray(sched)
+np.savetxt(sched_path, sched_arr)
 #print(sample)
 #print(n_arr)
 

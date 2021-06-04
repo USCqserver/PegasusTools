@@ -356,7 +356,7 @@ def _extract_unit_cells_solutions(sampleset: dimod.SampleSet, cell_qubits: dict,
     # Evaluate the energies within each unit cell
     energy_arr = bqm.energies((samples_arr, bqm.variables))
     #v_arr = np.asarray(v_arr)
-    sub_sampleset = dimod.SampleSet.from_samples(samples_arr, sampleset.vartype, energy_arr)
+    sub_sampleset = dimod.SampleSet.from_samples(samples_arr, sampleset.vartype, energy_arr, info=sampleset.info)
 
     return sub_sampleset
 

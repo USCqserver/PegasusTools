@@ -16,17 +16,26 @@ def beta_schedule(a, b, sc, lin_pnts, log_pnts):
     log_s.append(1.0)
 
     s_pnts = lin_s + log_s
-    sched_pnts = [(betaincinv(a, b, s), s) for s in s_pnts]
+    sched_pnts = [[betaincinv(a, b, s), s] for s in s_pnts]
 
     return sched_pnts
 
 
 def ramped_beta_schedule(a, b, sq, tf, tr, sc=0.9, lin_pnts=3, log_pnts=5):
     sched0 = beta_schedule(a, b, sc, lin_pnts, log_pnts)
-    sched1 = [(tf*t, sq*s) for (t, s) in sched0]
-    sched1.append((tf + tr, 1.0))
+    sched1 = [[tf*t, sq*s] for (t, s) in sched0]
+    sched1.append([tf + tr, 1.0])
     return sched1
 
+def ramped_pause_schedule(t1, sp, tp, tr):
+    t2 = t1 + tp
+    sched = [
+        [0.0, 0.0],
+        [t1, sp],
+        [t2, sp],
+        [t2 + tr, 1.0]
+    ]
+    return sched
 
 def args_to_sched(*sched_args):
     nargs = len(sched_args)
@@ -35,8 +44,9 @@ def args_to_sched(*sched_args):
 
 
 available_schedules = {
-    'pl': ("Piecewise Linear", "s0 t0 s1 t1 ..."),
-    'beta': ("Ramped beta schedule (Boundary cancelation protocol)", "a b sq [sc]")
+    'pl': ("Piecewise Linear", "t0 s0 t1 s1 ..."),
+    'pr': ("Pause and ramp", "t1 sp tp tr"),
+    'beta': ("Ramped beta schedule (Boundary cancellation protocol)", "a b sq [sc]")
 }
 
 
@@ -47,6 +57,12 @@ def interpret_schedule(tf, *sched_tokens):
     try:
         if sched_name == "pl":
             pnts = args_to_sched(*sched_args)
+            raise NotImplementedError()
+        elif sched_name == "pr3":
+            if nargs != 4:
+                raise RuntimeError("Expected four arguments: t1 sp tp tr")
+            t1, sp, tp, tr = float(sched_args[0]), float(sched_args[1]), float(sched_args[2]), float(sched_args[3])
+            return ramped_pause_schedule(t1, sp, tp, tr)
         elif sched_name == "beta":
             if nargs != 3:
                 raise RuntimeError("Expected at least three arguments: a b sq [sc]")
