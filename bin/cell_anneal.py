@@ -45,6 +45,7 @@ if args.schedule is not None:
     print(sched)
     dw_sampler.validate_anneal_schedule(sched)
 else:
+    print(f"tf={args.tf}")
     sched = None
 print("Constructing cell embedding...")
 cell_sampler = PegasusCellEmbedding(16, dw_sampler, cache=False)
@@ -84,11 +85,13 @@ all_results = all_results.aggregate()
 sample = all_results.record.sample
 n_arr = pgt.util.ising_to_intlabel(sample)
 all_results = dimod.append_data_vectors(all_results, blabel=n_arr)
-print(all_results)
 
-df : pd.DataFrame = all_results.to_pandas_dataframe()
+df : pd.DataFrame = all_results.to_pandas_dataframe()\
+    .sort_values("blabel", kind='mergesort')\
+    .sort_values("energy", kind='mergesort')
 df2 = df[["blabel", "num_occurrences", "energy"]]
-print(df[["blabel", "num_occurrences", "energy"]])
+if args.verbose:
+    print(df[:11][["blabel", "num_occurrences", "energy"]])
 csv_path = f"{args.output}_samps.csv"
 sched_path = f"{args.output}_sched.csv"
 with open(csv_path, 'w') as f:
