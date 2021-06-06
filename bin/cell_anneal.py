@@ -71,7 +71,8 @@ results_list = []
 print("Sampling...")
 # Collect the futures for each repetition
 for i in range(args.reps):
-    results = cell_sampler.sample(bqm, num_spin_reversal_transforms=1, num_reads=args.num_reads)
+    results = cell_sampler.sample(bqm, num_spin_reversal_transforms=1, num_reads=args.num_reads,
+                                  auto_scale=False)
     results_list.append(results)
 
 # Aggregate the results as they become available
