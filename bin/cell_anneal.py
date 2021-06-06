@@ -94,7 +94,10 @@ sched_path = f"{args.output}_sched.csv"
 with open(csv_path, 'w') as f:
     df2.to_csv(f, index=False)
 
-sched_arr = np.asarray(sched)
+if sched is not None:
+    sched_arr = np.asarray(sched)
+else:
+    sched_arr = np.asarray([[0.0, 0.0], [args.tf, 1.0]])
 np.savetxt(sched_path, sched_arr)
 #print(sample)
 #print(n_arr)
