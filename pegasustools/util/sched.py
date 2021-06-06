@@ -4,6 +4,8 @@ from scipy.special import betaincinv
 
 
 def beta_schedule(a, b, sc, lin_pnts, log_pnts):
+    if a==1 and b==1: # Linear schedule case
+        return [[0.0, 0.0], [1.0, 1.0]]
     lin_space = sc / (lin_pnts + 1)
 
     lin_s = [lin_space * i for i in range(lin_pnts + 2)]
