@@ -40,7 +40,7 @@ def try_embed_qac_graph(lin, qua, qac_dict: dict, avail_nodes, avail_edges, pena
         qv = qac_dict[v]
         for (qi, qj) in zip(qu[:3], qv[:3]):
             if (qi, qj) not in avail_edges:
-                print(f" ** Warning: cannot place physical edge ({qi}, {qj}) in logical edge ({u}, {v}) ")
+                #print(f" ** Warning: cannot place physical edge ({qi}, {qj}) in logical edge ({u}, {v}) ")
                 if strict:
                     return None, None
             else:
@@ -87,12 +87,19 @@ def collect_pqac_graph(m, nodes_list, edge_list):
 
     # Using the nice coordinates of the penalty qubit
     # Horizontal-directed external bonds
-    #  (t, x, z, 0)  -- (t, x+1, z, 0)
+    #  (t, x, z, 0)  -- (t, x+1, z, 0),  0 <= x < m-2
     # Vertical-directed external bonds
-    #  (t, x, z, 1)  -- (t, x, z+1, 1)
+    #  (t, x, z, 1)  -- (t, x, z+1, 1),  0 <= z < m-2 except (t=0,z=0)
+    # Cluster bonds
+    #  (t, x, z, 0)  -- (t, x, z, 1),
     # Diagonal internal bonds
-    #  (t, x, z, 0)  -- (t+2, x, z, 1)
-    #  (t, x, z, 0)  -- (t+1, x, z, 1)
+    #  (0, x, z, 0)  -- (1, x, z, 1)
+    #  (1, x, z, 0)  -- (2, x, z, 1)
+    #  (2, x, z, 0)  -- (0, x-1, z+1, 1)
+    # Cross-diagonal bonds
+    #  (0, x, z, 0)  -- (2, x+1, z, 1)
+    #  (1, x, z, 0)  -- (0, x, z+1, 1)
+    #  (2, x, z, 0)  -- (1, x, z+1, 1)
     return qac_qubits
 
 
@@ -111,6 +118,7 @@ def _extract_qac_array(sampleset: dimod.SampleSet, qac_dict: dict, bqm: BQM):
     q_decode = np.where(q_sum > 0, 1, -1)
 
     return q_decode
+
 
 class PegasusQACChainEmbedding(StructureComposite):
     def __init__(self, m, child_sampler: Union[Structured]):
@@ -150,8 +158,7 @@ class PegasusQACChainEmbedding(StructureComposite):
                 if (t + x) % 2 == 1:
                     ty_cells.reverse()
                 if len(ty_cells) == 8:
-                    print(f"Chain (t={t}, y={x}) placed at {ty_cells[0]}")
-
+                    #print(f"Chain (t={t}, y={x}) placed at {ty_cells[0]}")
                     ty_dict = {i: unit_cells[q] for i,q in enumerate(ty_cells)}
                     avail_chains[ty_cells[0]] = ty_dict
 
@@ -164,17 +171,18 @@ class PegasusQACChainEmbedding(StructureComposite):
         :param bqm:
         :return:
         """
+        bqm_lin = bqm.linear
+        bqm_qua = bqm.quadratic
         problem_lin = {}
         problem_qua = {}
         used_cells = []
         # collect qac encodings
         for cell, qac_dict in self.avail_chains.items():
-            bqm_lin = bqm.linear
-            bqm_qua = bqm.quadratic
             lin, qua = try_embed_qac_graph(bqm_lin, bqm_qua, qac_dict, self._child_nodes, self._child_edges,
                                      qac_penalty_strength, qac_problem_scale)
             if lin is None:
-                print(f" ** Cannot embed cell {cell}")
+                pass
+                #print(f" ** Cannot embed cell {cell}")
             else:
                 problem_lin.update(lin)
                 problem_qua.update(qua)

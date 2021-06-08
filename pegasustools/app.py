@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 
-def add_general_argument(parser: argparse.ArgumentParser):
+def add_general_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-v", "--verbose", action='store_true')
     parser.add_argument("--targets", nargs='+', type=int, help="The list of target logical states to keep track of.")
     parser.add_argument("--tf", type=float, help="The anneal time for a simple annealing schedule.", default=20.0)
@@ -22,6 +22,13 @@ def add_general_argument(parser: argparse.ArgumentParser):
     parser.add_argument("problem",
                         help="A cell problem, specified in a text file with three columns with the adjacency list")
     parser.add_argument("output", help="Prefix for output data")
+
+
+def add_qac_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument("--qac-penalty", type=float, default=0.1,
+                        help="Penalty strength for QAC")
+    parser.add_argument("--qac-scale", type=float, default=1.0,
+                        help="Scale factor for logical couplings for QAC")
 
 
 def save_cell_results(raw_results: dimod.SampleSet, sched, args, additional_columns=None):
@@ -57,6 +64,22 @@ def save_cell_results(raw_results: dimod.SampleSet, sched, args, additional_colu
         sched_arr = np.asarray([[0.0, 0.0], [args.tf, 1.0]])
     np.savetxt(sched_path, sched_arr)
 
+
+def run_sampler(sampler, bqm, args, **sampler_kwargs):
+    print("Sampling...")
+    results_list = []
+    # Collect the futures for each repetition
+    for i in range(args.reps):
+        results = sampler.sample(bqm, **sampler_kwargs)
+        results_list.append(results)
+
+    # Aggregate the results as they become available
+    aggr_results = []
+    for i, result in enumerate(results_list):
+        print(f"{i + 1}/{args.reps}")
+        aggr_results.append(result.aggregate())
+
+    return aggr_results
 
 def profile(dw_sampler, bqm):
     from .pqubit import PegasusCellEmbedding

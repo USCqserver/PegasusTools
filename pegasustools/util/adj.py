@@ -1,5 +1,5 @@
 from typing import List, Dict
-from dimod import BinaryQuadraticModel
+from dimod import BinaryQuadraticModel, AdjVectorBQM
 #AdjacencyList = List[ Dict[int, float]]
 
 
@@ -24,5 +24,5 @@ def read_ising_adjacency(filename, max_k=1.0):
                 (i2, j2) = (i, j) if i < j else (j, i)
                 quadratic[(i2, j2)] = K / max_k
 
-    bqm = BinaryQuadraticModel.from_ising(linear, quadratic)
+    bqm = AdjVectorBQM.from_ising(linear, quadratic)
     return bqm
