@@ -60,7 +60,7 @@ def interpret_schedule(tf, *sched_tokens):
         if sched_name == "pl":
             pnts = args_to_sched(*sched_args)
             raise NotImplementedError()
-        elif sched_name == "pr3":
+        elif sched_name == "pr":
             if nargs != 4:
                 raise RuntimeError("Expected four arguments: t1 sp tp tr")
             t1, sp, tp, tr = float(sched_args[0]), float(sched_args[1]), float(sched_args[2]), float(sched_args[3])
