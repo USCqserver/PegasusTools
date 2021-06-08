@@ -62,7 +62,7 @@ def save_cell_results(raw_results: dimod.SampleSet, sched, args, additional_colu
         sched_arr = np.asarray(sched)
     else:
         sched_arr = np.asarray([[0.0, 0.0], [args.tf, 1.0]])
-    np.savetxt(sched_path, sched_arr)
+    np.savetxt(sched_path, sched_arr, delimiter=',')
 
 
 def run_sampler(sampler, bqm, args, **sampler_kwargs):
