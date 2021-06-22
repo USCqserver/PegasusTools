@@ -81,7 +81,37 @@ def reweighed_means(x: np.ndarray, p: np.ndarray):
     p2 = np.reshape(p, p_sh2)  # (num_boots, nsamps, ...)
     return np.sum(x[np.newaxis, :] * p2, axis=1)
 
-def bayesian_bootstrap(x: Union[np.ndarray, Tuple], num_boots=32, observations: Optional[np.ndarray] = None):
+
+def boltzmann_dirichlet(num_boots, energies: np.ndarray, observations: Optional[np.ndarray]=None):
+    n_samps = energies.shape[0]
+    if observations is not None:
+        probs = weighed_bayesian_boots(observations, num_boots) # (num_boots, n_samps)
+    else:
+        probs = bayesian_boots(n_samps, num_boots)
+    f = energies[np.newaxis, :] + np.log(probs)
+    minf = np.min(f, axis=1, keepdims=True)
+    f_arr = f - minf
+    w_arr = np.exp(-f_arr)
+    z = np.sum(w_arr, axis=1, keepdims=True)
+    weights = w_arr / z
+    return weights
+
+
+def boltzmann_dirichlet_bootstrap(x: Union[np.ndarray, Tuple], energies: np.ndarray,
+                                  observations: Optional[np.ndarray] = None, num_boots=32 ):
+    n_samps = energies.shape[0]
+
+    if np.ndim(observations) != 1 and observations.shape[0] != n_samps:
+        raise ValueError(f"Observations must be a 1D array with length {n_samps}")
+    probs = boltzmann_dirichlet(num_boots, energies, observations)
+    if isinstance(x, tuple):
+        boots = tuple(BootstrapSample(reweighed_means(xi, probs)) for xi in x)
+    else:
+        boots = BootstrapSample(reweighed_means(x, probs))
+    return boots
+
+def bayesian_bootstrap(x: Union[np.ndarray, Tuple], num_boots=32, observations: Optional[np.ndarray] = None,
+                       weights: Optional[np.ndarray] = None):
     """
 
     :param x:
@@ -97,7 +127,10 @@ def bayesian_bootstrap(x: Union[np.ndarray, Tuple], num_boots=32, observations: 
         if np.ndim(observations) != 1 and observations.shape[0] != n_samps:
             raise ValueError(f"Observations must be a 1D array with length {n_samps}")
         probs = weighed_bayesian_boots(observations, num_boots)
-
+    if weights is not None:
+        p2 = probs * weights[np.newaxis, :]
+        z = np.sum(p2, axis=1, keepdims=True)
+        probs = p2 / z
     if isinstance(x, tuple):
         boots = tuple(BootstrapSample(reweighed_means(xi, probs)) for xi in x)
     else:

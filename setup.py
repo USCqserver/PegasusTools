@@ -14,6 +14,10 @@ extensions = [
     Extension(
         "pegasustools.util.qac", ["pegasustools/util/qac.pyx"],
         extra_compile_args=["-std=c++17"]
+    ),
+    Extension(
+        "pegasustools.util.stats", ["pegasustools/util/stats.pyx"],
+        extra_compile_args=["-std=c++17"]
     )
 ]
 
