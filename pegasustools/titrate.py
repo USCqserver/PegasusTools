@@ -2,7 +2,7 @@ import dimod
 import numpy as np
 from dimod.core.bqm import BQM
 from dimod.bqm import AdjVectorBQM
-from pegasustools.util import bootstrap_apply, bayesian_bootstrap, apply_boots
+from pegasustools.util import bootstrap_apply, bayesian_bootstrap, apply_boots, BootstrapSample
 
 class QuboTitration:
     """
@@ -13,27 +13,33 @@ class QuboTitration:
     where h is a parameter that is varied
 
     """
-    def __init__(self, quadratic: np.ndarray):
+    def __init__(self, quadratic: np.ndarray, variables=None):
         di = np.diag_indices_from(quadratic)
         n = quadratic.shape[0]
+        if variables is None:
+            variables = np.arange(0, n)
+        if len(variables) != n:
+            raise RuntimeError("Variable array must have the same length as the number of variables")
+        self._variables = variables
         self._linear = quadratic[di]
-        self._quadratic = quadratic*(1.0 - np.eye(n))
-        self.max_j = np.max(self._quadratic)
-        self._scaled_quadratic = self._quadratic/self.max_j
-        self._qubo_bqm: BQM = AdjVectorBQM(self._linear, self._quadratic, dimod.BINARY)
+        quadratic_d = {}
+        for i in range(n):
+            for j in range(i+1, n):
+                quadratic_d[(variables[i], variables[j])] = quadratic[i, j] + quadratic[j, i]
+        self._quadratic = quadratic_d
+        linear = {v: l for v, l in zip(variables, self._linear)}
+        self._qubo_bqm: BQM = AdjVectorBQM(linear, quadratic_d, dimod.BINARY)
 
 
     def titr_bqm(self, h):
-        linear = self._linear + h
+        linear_arr = self._linear + h
+        linear = {v: l for v, l in zip(self._variables, linear_arr)}
         bqm: BQM = AdjVectorBQM(linear, self._quadratic, dimod.BINARY)
         return bqm
 
     def sample_h(self, h, sampler: dimod.Sampler, titr_scale=False, titr_beta=None, **kwargs):
         linear = self._linear + h
-        if titr_scale:
-            bqm: BQM = AdjVectorBQM(linear/self.max_j, self._scaled_quadratic, dimod.BINARY)
-        else:
-            bqm : BQM= AdjVectorBQM(linear, self._quadratic, dimod.BINARY)
+        bqm : BQM= AdjVectorBQM(linear, self._quadratic, dimod.BINARY)
 
         results: dimod.SampleSet = sampler.sample(bqm, **kwargs)
         results = results.aggregate()
@@ -45,12 +51,18 @@ class TitrationResult:
     def __init__(self, bqm: BQM, results: dimod.SampleSet, beta=None):
         self.qubo_bqm = bqm
         self.qubo_results = results
+        # resort variables to BQM order (necessary when the fixed variable composite is used)
+        results_variables = results.variables
+        var_idx = {v: i for i,v in enumerate(results_variables)}
+        re_idx = np.asarray([var_idx[v] for v in bqm.variables])
+
+        self.variables = bqm.variables
         ising_bqm : BQM = bqm.change_vartype(dimod.SPIN, inplace=False)
         results = results.change_vartype(dimod.SPIN, inplace=False)
         self.ising_bqm = ising_bqm
         self.ising_results = results
 
-        samp: np.ndarray = results.record.sample
+        samp: np.ndarray = results.record.sample[:, re_idx]
         energies: np.ndarray = results.record.energy
         min_energy = np.min(energies)
         n: np.ndarray = results.record.num_occurrences
@@ -75,7 +87,7 @@ class TitrationResult:
         #mean_s = bootstrap_apply(lambda x: np.mean(x, axis=0), samp, weights=weights)
         # Calculate the mean-field energy
         def mean_field_energy(x):
-            ms, labels = dimod.as_samples(x)
+            ms, labels = dimod.as_samples((x, self.variables))
             ldata, (irow, icol, qdata), offset \
                 = self.qubo_bqm.to_numpy_vectors(variable_order=labels)
             qubo_x = (ms+1.0)/2.0
@@ -110,7 +122,7 @@ class TitrationResult:
 
         self.energies = mean_energy
         self.mf_energy = mf_energy
-        self.mean_s = mean_s
+        self.mean_s : BootstrapSample = mean_s
         self.mean_s2 = mean_s2
         self.cov = cov
         self.dg_cor = dg_cor
