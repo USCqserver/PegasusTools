@@ -1,6 +1,6 @@
 import argparse
 
-from pegasustools.app import add_general_arguments, save_cell_results, run_sampler
+from pegasustools.app import add_general_arguments,add_cell_arguments, save_cell_results, run_sampler
 from pegasustools.util.adj import read_ising_adjacency
 from pegasustools.util.sched import interpret_schedule
 from pegasustools.pqubit import PegasusCellEmbedding
@@ -9,6 +9,7 @@ import dimod
 
 parser = argparse.ArgumentParser()
 add_general_arguments(parser)
+add_cell_arguments(parser)
 
 args = parser.parse_args()
 
@@ -34,7 +35,11 @@ dw_kwargs = {"num_spin_reversal_transforms": 1 if args.rand_gauge else 0,
              "num_reads": args.num_reads,
              "auto_scale": False}
 print("Constructing cell embedding...")
-cell_sampler = PegasusCellEmbedding(16, dw_sampler, cache=False)
+if args.cell_p < 1.0:
+    random_fill=args.cell_p
+else:
+    random_fill=None
+cell_sampler = PegasusCellEmbedding(16, dw_sampler, random_fill=random_fill, cache=False)
 
 aggr_results = run_sampler(cell_sampler, bqm, args, **dw_kwargs, **sched_kwags)
 all_results: dimod.SampleSet = dimod.concatenate(aggr_results)

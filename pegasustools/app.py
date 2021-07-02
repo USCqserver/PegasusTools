@@ -15,14 +15,18 @@ def add_general_arguments(parser: argparse.ArgumentParser):
                         help="Number of repetitions of data collection")
     parser.add_argument("-R", "--rand-gauge", action='store_true',
                         help="Use a random gauge (spin reversal transformation) every repetition")
-    parser.add_argument("--rev-init", type=int,
-                        help="Initial state for reverse annealing")
     parser.add_argument("--scale-j", type=float, default=1.0,
                         help="Rescale all biases and couplings as J / scale_J")
     parser.add_argument("problem",
                         help="A cell problem, specified in a text file with three columns with the adjacency list")
     parser.add_argument("output", help="Prefix for output data")
 
+
+def add_cell_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument("--rev-init", type=int,
+                        help="Initial state for reverse annealing")
+    parser.add_argument("--cell-p", type=float, default=1.0,
+                        help="Fraction of cells to randomly fill")
 
 def add_qac_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--qac-penalty", type=float, default=0.1,
