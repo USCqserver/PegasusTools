@@ -27,6 +27,8 @@ def add_cell_arguments(parser: argparse.ArgumentParser):
                         help="Initial state for reverse annealing")
     parser.add_argument("--cell-p", type=float, default=1.0,
                         help="Fraction of cells to randomly fill")
+    parser.add_argument("--track-cells", type=int, nargs="+",
+                        help="Track and report the ground state probabilities of the listed individual cells")
 
 def add_qac_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--qac-penalty", type=float, default=0.1,

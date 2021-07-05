@@ -14,9 +14,10 @@ import numpy as np
 from typing import Union
 from dimod import ComposedSampler, BinaryQuadraticModel, Sampler, StructureComposite, Structured, \
     bqm_structured, AdjArrayBQM, AdjVectorBQM
-from .pgq import collect_complete_unit_cells
-import dwave_networkx as dnx
-import networkx as nx
+#from .pgq import collect_complete_unit_cells
+#import dwave_networkx as dnx
+#import networkx as nx
+import logging
 
 Pegasus0Shift = [2, 2, 10, 10, 6, 6, 6, 6, 2, 2, 10, 10]
 
@@ -385,15 +386,15 @@ class PegasusCellEmbedding(StructureComposite):
                 with open(cache_path, 'wb') as f:
                     self._save_cache(f, (unit_cells, unavail_cells))
 
-        print(f"Available cells in the topology: {len(unit_cells)}")
-        print(f"Skipped cells: {unavail_cells}")
+        logging.info(f"Available cells in the topology: {len(unit_cells)}")
+        logging.info(f"Skipped cells: {unavail_cells}")
 
         if random_fill is not None:
             if not random_fill > 0.0 and random_fill <= 1.0:
                 raise ValueError(f"Invalid value for random_fill: {random_fill}")
             ncells = len(unit_cells)
             m = int(random_fill*ncells)
-            print(f"Using random cell selection (f={random_fill}, m={m})")
+            logging.info(f"Using random cell selection (f={random_fill}, m={m})")
             rand_idxs = np.random.choice(np.arange(ncells), m, replace=False)
             v_arr = list(unit_cells.keys())
             sorted_idxs = list(rand_idxs)
