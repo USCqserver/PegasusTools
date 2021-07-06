@@ -30,6 +30,7 @@ def add_cell_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--track-cells", type=int, nargs="+",
                         help="Track and report the ground state probabilities of the listed individual cells")
 
+
 def add_qac_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--qac-penalty", type=float, default=0.1,
                         help="Penalty strength for QAC")
