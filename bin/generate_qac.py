@@ -38,7 +38,8 @@ bqm = AdjVectorBQM(lin, qua, dimod.SPIN)
 
 tflist = [1.0, 5.0, 25.0]
 samples_qac = [
-    qac_sampler.sample(bqm, encoding='qac', num_reads=20, auto_scale=False, annealing_time=tf)
+    qac_sampler.sample(bqm, encoding='qac', qac_penalty_strength=0.3, qac_problem_scale=1.0, num_reads=20,
+                       auto_scale=False, annealing_time=tf)
     for tf in tflist
 ]
 samples_c = [
@@ -48,8 +49,8 @@ samples_c = [
 print("QAC")
 for tf, s in zip(tflist, samples_qac):
     print(f"tf = {tf}")
-    print(s)
+    print(s.truncate(10))
 print("ALL")
 for tf, s in zip(tflist, samples_c):
     print(f"tf = {tf}")
-    print(s)
+    print(s.truncate(10))

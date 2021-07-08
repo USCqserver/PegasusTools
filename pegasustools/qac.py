@@ -22,8 +22,8 @@ def qac_nice2xy(t, x, z, u, a=1.0, x0=0.0, y0=0.0):
 
     s = 2*u - 1
     # Image coordinates to plot coordinates
-    x = (float(xv) + s*0.3)
-    y = -(float(yv) + s*0.2)
+    x = (float(xv) + s*0.2)
+    y = -(float(yv) - s*0.2)
 
     return x0 + a*x, y0 + a*y
 
@@ -232,17 +232,22 @@ class PegasusQACGraph:
         g.add_edges_from(edges)
         self.g = g
 
+    def draw(self):
+        pos_list = {node: qac_nice2xy(*node, a=60.0) for node in self.nodes}
+        g = self.g
+        nx.draw_networkx(g, pos=pos_list, with_labels=False, node_size=75, font_size=12)
 
-def make_qac_graph(qac_node_list, qac_edge_list):
-    import matplotlib.pyplot as plt
-    import networkx as nx
+    def subtopol(self, l):
+        sub_nodes = [n for n in self.nodes if n[1] < l and n[2] < l ]
+        g2 : nx.Graph = nx.subgraph(self.g, nbunch=sub_nodes)
+        sub_qubits = self.qubit_array[:, :l, :l]
+        sub_qac = self.__new__(self.__class__)
+        sub_qac.nodes = sub_nodes
+        sub_qac.edges = set(g2.edges)
+        sub_qac.g = g2
+        sub_qac.qubit_array = sub_qubits
 
-    pos_list = {node: qac_nice2xy(*node, a=60.0) for node in qac_node_list}
-    g = nx.Graph()
-    g.add_nodes_from(qac_node_list)
-    g.add_edges_from(qac_edge_list)
-    nx.draw_networkx(g, pos=pos_list, with_labels=False, node_size=75, font_size=12)
-
+        return sub_qac
 
 def _extract_all_samples(sampleset:  dimod.SampleSet, qac_map, bqm: BQM, ancilla=False):
     vars = sampleset.variables
@@ -264,9 +269,11 @@ def _decode_qac_array(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
     q_sum = np.sum(q_values, axis=2)
     # Majority vote reduction
     q_decode = np.where(q_sum > 0, 1, -1)
+    q_err = np.mean(np.where(np.abs(q_sum) == 3, 0.0, 1.0), axis=1)
+
     energies = bqm.energies((q_decode, bqm.variables))
 
-    return q_decode, energies
+    return q_decode, energies, q_err
 
 
 def _decode_all_array(sampleset: dimod.SampleSet, qac_map, bqm: BQM, ancilla=False):
@@ -353,8 +360,9 @@ class PegasusQACEmbedding(StructureComposite):
         return self._extract_qac_solutions(encoding, sampleset, bqm)
 
     def _extract_qac_solutions(self, encoding, sampleset: dimod.SampleSet, bqm: BQM):
+        q_err=None
         if encoding == 'qac':
-            samples, energies = _decode_qac_array(sampleset, self.qac_graph.qubit_array, bqm)
+            samples, energies, q_err = _decode_qac_array(sampleset, self.qac_graph.qubit_array, bqm)
         elif encoding == 'c':
             samples, energies = _decode_c_array(sampleset, self.qac_graph.qubit_array, bqm)
         elif encoding == 'all':
@@ -362,8 +370,10 @@ class PegasusQACEmbedding(StructureComposite):
         else:
             raise RuntimeError(f" ** Invalid encoding option {encoding}")
 
-        # v_arr = np.asarray(v_arr)
-        sub_sampleset = dimod.SampleSet.from_samples(samples, sampleset.vartype, energies)
+        vectors = {}
+        if q_err is not None:
+            vectors["error_p"] = q_err
+        sub_sampleset = dimod.SampleSet.from_samples(samples, sampleset.vartype, energies, **vectors)
 
         return sub_sampleset
 
@@ -488,9 +498,12 @@ if __name__ == "__main__":
     dws = DWaveSampler()
     qac_graph = PegasusQACGraph(16, dws.nodelist, dws.edgelist)
     # qac, nodes, edges = collect_pqac_graph(16, dws.nodelist, dws.edgelist)
-    fig, ax = plt.subplots(figsize=(36, 36))
-    make_qac_graph(qac_graph.nodes, qac_graph.edges)
+    #fig, ax = plt.subplots(figsize=(36, 36))
+    fig, ax = plt.subplots(figsize=(8, 8))
+    l = 5
+    sub_qac = qac_graph.subtopol(5)
+    sub_qac.draw()
     # Evaluate some statistics
 
     #plt.show()
-    plt.savefig("pegasus_qac_logical.png")
+    plt.savefig(f"pegasus_qac_logical_l{l}.png")
