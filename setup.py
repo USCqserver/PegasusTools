@@ -18,6 +18,10 @@ extensions = [
     Extension(
         "pegasustools.util.stats", ["pegasustools/util/stats.pyx"],
         extra_compile_args=["-std=c++17"]
+    ),
+    Extension(
+        "pegasustools.util.graph", ["pegasustools/util/graph.pyx"],
+        extra_compile_args=["-std=c++17"]
     )
 ]
 

@@ -8,7 +8,7 @@ import dimod
 from dimod import StructureComposite, Structured, bqm_structured, AdjVectorBQM
 from pegasustools.pqubit import collect_available_unit_cells, Pqubit
 from pegasustools.util.qac import init_qac_penalty
-
+from pegasustools.util.graph import random_walk_loop
 
 def qac_nice2xy(t, x, z, u, a=1.0, x0=0.0, y0=0.0):
     """
@@ -83,6 +83,7 @@ def try_embed_qac_graph(lin, qua, qac_map, avail_nodes, avail_edges, penalty_str
     :param qac_map: Maps variables to lists of four qubits
     :param penalty_strength:
     :param problem_scale:
+    :param strict:
     :return:
     """
     qac_lin = {}
@@ -122,7 +123,7 @@ def try_embed_qac_graph(lin, qua, qac_map, avail_nodes, avail_edges, penalty_str
 
 
 class PegasusQACGraph:
-    def __init__(self, m, nodes_list, edge_list, strict=True):
+    def __init__(self, m, nodes_list, edge_list, strict=True, purge_deg1=True):
         """
          The PQAC graph is specified as follows:
              Within each cell with vertical and horizontal registers (qv, qh), the penalty qubits are placed in
@@ -231,21 +232,37 @@ class PegasusQACGraph:
         g.add_nodes_from(qac_nodes)
         g.add_edges_from(edges)
         self.g = g
+        if purge_deg1:
+            self.purge_deg1()
+
+    def purge_deg1(self):
+        """ Iteratively purge trivial degree 1 nodes"""
+        deg1_nodes = [n for n in self.g.nodes if self.g.degree[n] < 2]
+        n_purge = 0
+        while len(deg1_nodes) > 0:
+            self.g.remove_nodes_from(deg1_nodes)
+            n_purge += len(deg1_nodes)
+            self.nodes = set(self.g.nodes)
+            self.edges = set(self.g.edges)
+            deg1_nodes = [n for n in self.g.nodes if self.g.degree[n] < 2]
+        print(f"Purged {n_purge} trivial nodes")
 
     def draw(self):
         pos_list = {node: qac_nice2xy(*node, a=60.0) for node in self.nodes}
         g = self.g
         nx.draw_networkx(g, pos=pos_list, with_labels=False, node_size=75, font_size=12)
 
-    def subtopol(self, l):
+    def subtopol(self, l, purge_deg1=True):
         sub_nodes = [n for n in self.nodes if n[1] < l and n[2] < l ]
-        g2 : nx.Graph = nx.subgraph(self.g, nbunch=sub_nodes)
+        g2: nx.Graph = nx.subgraph(self.g, nbunch=sub_nodes).copy()
         sub_qubits = self.qubit_array[:, :l, :l]
         sub_qac = self.__new__(self.__class__)
         sub_qac.nodes = sub_nodes
         sub_qac.edges = set(g2.edges)
         sub_qac.g = g2
         sub_qac.qubit_array = sub_qubits
+        if purge_deg1:
+            sub_qac.purge_deg1()
 
         return sub_qac
 
@@ -500,8 +517,12 @@ if __name__ == "__main__":
     # qac, nodes, edges = collect_pqac_graph(16, dws.nodelist, dws.edgelist)
     #fig, ax = plt.subplots(figsize=(36, 36))
     fig, ax = plt.subplots(figsize=(8, 8))
-    l = 5
-    sub_qac = qac_graph.subtopol(5)
+    l = 8
+    sub_qac = qac_graph.subtopol(l)
+    n = np.random.randint(0, sub_qac.g.number_of_nodes())
+    init_node = list(qac_graph.g.nodes)[n]
+    rand_loop = random_walk_loop(init_node, qac_graph.g)
+    print(rand_loop)
     sub_qac.draw()
     # Evaluate some statistics
 
