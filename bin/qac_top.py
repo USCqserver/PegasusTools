@@ -14,6 +14,8 @@ parser = argparse.ArgumentParser(
 parser.add_argument("-L", type=int, default=None, help="System size L. If none, uses all available QAC nodes")
 parser.add_argument("--labels", type=str, default="labels.json",
                     help="Save file for the integer label mapping of the QAC graph")
+parser.add_argument("--graphml", type=str, default=None,
+                    help="Optionally, a .graphml file to store a complete specification of the graph")
 parser.add_argument("dest", type=str,
                     help="Save file for the QAC topology in text adjacency list format")
 
@@ -36,5 +38,10 @@ mapping_dict = {"nodes_to_labels": node_labels, "labels_to_nodes": label_nodes}
 
 g2 = nx.convert_node_labels_to_integers(g, ordering="sorted", label_attribute="qubit")
 save_graph_adjacency(g2, args.dest)
+if args.graphml is not None:
+    # stringify qubit locations, then save graphml
+    for n in g2.nodes:
+        g2.nodes[n]["qubit"] = str(g2.nodes[n]["qubit"])
+    nx.readwrite.write_graphml(g2, args.graphml)
 with open(args.labels, 'w') as f:
     json.dump(mapping_dict, f)
