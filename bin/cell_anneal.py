@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 
 from pegasustools.app import add_general_arguments,add_cell_arguments, save_cell_results, run_sampler

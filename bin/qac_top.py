@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import dwave_networkx as dnx
 import matplotlib.pyplot as plt
