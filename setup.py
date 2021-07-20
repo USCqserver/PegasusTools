@@ -26,7 +26,7 @@ extensions = [
 ]
 
 setup(
-    name="Pegasus Tools",
+    name="pegasustools-hmb",
     version="0.0.1",
     author="Humberto Munoz Bauza",
     packages=["pegasustools"],

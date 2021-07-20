@@ -64,48 +64,53 @@ def random_couplings(nodelist, edgelist):
     return lin, qua
 
 
-parser = argparse.ArgumentParser(
-    description="Generate a problem instance over an arbitrary graph"
-)
-parser.add_argument("--clause-density", type=float, default=1.0,
-                    help="Number of clauses as a fraction of problem size (for clause-based instances)")
-parser.add_argument("--min-clause-size", type=int, default=6,
-                    help="Minimum size of a clause (for clause-based instances)")
-parser.add_argument("--ruggedness", type=float, default=9.0,
-                    help="Maximum weight of any single coupling/disjunction summed over all clauses.")
-parser.add_argument("--rejection-iters", type=int, default=1000,
-                    help="If a generated instance must satisfy some constraint, the number of allowed attempts "
-                    "to reject an instance generate a new one.")
-parser.add_argument("topology", type=str, help="Text file specifying graph topology")
-parser.add_argument("instance_class", choices=["fl", "r3"],
-                    help="Instance class to generate")
-parser.add_argument("dest", type=str,
-                    help="Save file for the instance specification in Ising adjacency format")
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate a problem instance over an arbitrary graph"
+    )
+    parser.add_argument("--clause-density", type=float, default=1.0,
+                        help="Number of clauses as a fraction of problem size (for clause-based instances)")
+    parser.add_argument("--min-clause-size", type=int, default=6,
+                        help="Minimum size of a clause (for clause-based instances)")
+    parser.add_argument("--ruggedness", type=float, default=9.0,
+                        help="Maximum weight of any single coupling/disjunction summed over all clauses.")
+    parser.add_argument("--rejection-iters", type=int, default=1000,
+                        help="If a generated instance must satisfy some constraint, the number of allowed attempts "
+                        "to reject an instance generate a new one.")
+    parser.add_argument("topology", type=str, help="Text file specifying graph topology")
+    parser.add_argument("instance_class", choices=["fl", "r3"],
+                        help="Instance class to generate")
+    parser.add_argument("dest", type=str,
+                        help="Save file for the instance specification in Ising adjacency format")
 
-args = parser.parse_args()
-g: nx.Graph = nx.readwrite.read_adjlist(args.topology, nodetype=int)
+    args = parser.parse_args()
+    g: nx.Graph = nx.readwrite.read_adjlist(args.topology, nodetype=int)
 
-if args.instance_class == "fl":
-    n = g.number_of_nodes()
-    m = int(args.clause_density * n)
-    print(f" * instance size = {n}")
-    print(f" * clause density = {args.clause_density}")
-    print(f" * num clauses = {m}")
-    r = args.min_clause_size
-    for i in range(args.rejection_iters):
-        g2, loops = frustrated_loops(g, m, min_loop=r)
-        if all(abs(j) <= args.ruggedness for (u, v, j) in g2.edges.data("weight")):
-            print(f" * ruggedness {args.ruggedness} satisfied in {i} iterations")
-            break
-    else:
-        raise RuntimeError(f"Failed to satisfy ruggedness ({args.ruggedness}) within {args.rejection_iters} iterations")
-    loop_lengths = [len(l) for l in loops]
-    bins = np.concatenate([np.arange(r, 4*r)-0.5, [1000.0]])
-    hist, _ = np.histogram(loop_lengths, bins)
-    print(bins)
-    print(hist)
-    print([len(c) for c in nx.connected_components(g2) if len(c) > 1])
-    save_ising_instance_graph(g2, args.dest)
+    if args.instance_class == "fl":
+        n = g.number_of_nodes()
+        m = int(args.clause_density * n)
+        print(f" * instance size = {n}")
+        print(f" * clause density = {args.clause_density}")
+        print(f" * num clauses = {m}")
+        r = args.min_clause_size
+        for i in range(args.rejection_iters):
+            g2, loops = frustrated_loops(g, m, min_loop=r)
+            if all(abs(j) <= args.ruggedness for (u, v, j) in g2.edges.data("weight")):
+                print(f" * ruggedness {args.ruggedness} satisfied in {i} iterations")
+                break
+        else:
+            raise RuntimeError(f"Failed to satisfy ruggedness ({args.ruggedness}) within {args.rejection_iters} iterations")
+        loop_lengths = [len(l) for l in loops]
+        bins = np.concatenate([np.arange(r, 4*r)-0.5, [1000.0]])
+        hist, _ = np.histogram(loop_lengths, bins)
+        print(bins)
+        print(hist)
+        print([len(c) for c in nx.connected_components(g2) if len(c) > 1])
+        save_ising_instance_graph(g2, args.dest)
+
+
+if __name__ == "__main__":
+    main()
 #
 # bqm = AdjVectorBQM(lin, qua, dimod.SPIN)
 #
