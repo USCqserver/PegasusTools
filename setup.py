@@ -1,4 +1,4 @@
-from setuptools import setup, Extension
+from setuptools import setup, Extension, find_packages
 #from distutils.core import setup, Extension
 from Cython.Build import cythonize
 
@@ -30,7 +30,7 @@ setup(
     version="0.0.1",
     author="Humberto Munoz Bauza",
     package_dir={"": "src"},
-    packages=["pegasustools"],
+    packages=find_packages(),
     install_requires=[
         "cython",
         "dimod",
