@@ -5,7 +5,7 @@ from Cython.Build import cythonize
 extensions = [
     Extension(
         "pegasustools.pgq.cypqubit", ["src/pegasustools/pgq/cypqubit.pyx"],
-        extra_compile_args=["-std=c++17"]
+        extra_compile_args=["-std=c++17"], include_dirs=["./include"]
     ),
     Extension(
         "pegasustools.pgq.util", ["src/pegasustools/pgq/util.pyx"],
