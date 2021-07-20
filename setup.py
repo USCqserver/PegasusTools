@@ -30,7 +30,7 @@ setup(
     version="0.0.1",
     author="Humberto Munoz Bauza",
     package_dir={"": "src"},
-    packages=find_packages(),
+    packages=find_packages(where="src"),
     install_requires=[
         "cython",
         "dimod",
