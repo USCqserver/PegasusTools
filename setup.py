@@ -29,6 +29,7 @@ setup(
     name="pegasustools-hmb",
     version="0.0.1",
     author="Humberto Munoz Bauza",
+    package_dir={"": "src"},
     packages=["pegasustools"],
     install_requires=[
         "cython",
