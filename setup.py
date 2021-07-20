@@ -31,6 +31,7 @@ setup(
     author="Humberto Munoz Bauza",
     packages=["pegasustools"],
     install_requires=[
+        "cython",
         "dimod",
         "numpy",
         "pandas",
