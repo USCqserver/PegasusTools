@@ -4,23 +4,23 @@ from Cython.Build import cythonize
 
 extensions = [
     Extension(
-        "pegasustools.pgq.cypqubit", ["pegasustools/pgq/cypqubit.pyx"],
+        "pegasustools.pgq.cypqubit", ["src/pegasustools/pgq/cypqubit.pyx"],
         extra_compile_args=["-std=c++17"]
     ),
     Extension(
-        "pegasustools.pgq.util", ["pegasustools/pgq/util.pyx"],
+        "pegasustools.pgq.util", ["src/pegasustools/pgq/util.pyx"],
         extra_compile_args=["-std=c++17"]
     ),
     Extension(
-        "pegasustools.util.qac", ["pegasustools/util/qac.pyx"],
+        "pegasustools.util.qac", ["src/pegasustools/util/qac.pyx"],
         extra_compile_args=["-std=c++17"]
     ),
     Extension(
-        "pegasustools.util.stats", ["pegasustools/util/stats.pyx"],
+        "pegasustools.util.stats", ["src/pegasustools/util/stats.pyx"],
         extra_compile_args=["-std=c++17"]
     ),
     Extension(
-        "pegasustools.util.graph", ["pegasustools/util/graph.pyx"],
+        "pegasustools.util.graph", ["src/pegasustools/util/graph.pyx"],
         extra_compile_args=["-std=c++17"]
     )
 ]
