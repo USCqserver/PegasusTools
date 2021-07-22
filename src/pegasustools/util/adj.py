@@ -65,6 +65,20 @@ def save_ising_instance_graph(g: nx.Graph, filename):
                 f.write(f"{u} {v} {j}\n")
 
 
+def ising_graph_to_bqm(g: nx.Graph):
+    linear = {}
+    quadratic = {}
+    for n, h in g.nodes.data("bias"):
+        if h is not None:
+            linear[n] = h
+    for u, v, j in g.edges.data("weight"):
+        if j is not None:
+            (u2, v2) = (u, v) if u < v else (v, u)
+            quadratic[(u2, v2)] = j
+
+    bqm = AdjVectorBQM.from_ising(linear, quadratic)
+    return bqm
+
 def save_graph_adjacency(g: nx.Graph, filename):
     nx.readwrite.write_adjlist(g, filename)
 

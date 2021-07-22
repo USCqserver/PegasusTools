@@ -3,10 +3,10 @@ import argparse
 import networkx as nx
 import numpy as np
 from pegasustools.util.graph import random_walk_loop
-from pegasustools.util.adj import save_ising_instance_graph
+from pegasustools.util.adj import save_ising_instance_graph, ising_graph_to_bqm
 
 
-def frustrated_loops(g: nx.Graph, m, j=1.0, min_loop=6, max_iters=10000):
+def frustrated_loops(g: nx.Graph, m, j=-1.0, min_loop=6, max_iters=10000):
     """
     Generate a frustrated loop problem over the logical graph
     :param g: Logical graph
@@ -72,7 +72,7 @@ def main():
                         help="Number of clauses as a fraction of problem size (for clause-based instances)")
     parser.add_argument("--min-clause-size", type=int, default=6,
                         help="Minimum size of a clause (for clause-based instances)")
-    parser.add_argument("--ruggedness", type=float, default=9.0,
+    parser.add_argument("--range", type=float, default=9.0,
                         help="Maximum weight of any single coupling/disjunction summed over all clauses.")
     parser.add_argument("--rejection-iters", type=int, default=1000,
                         help="If a generated instance must satisfy some constraint, the number of allowed attempts "
@@ -95,18 +95,31 @@ def main():
         r = args.min_clause_size
         for i in range(args.rejection_iters):
             g2, loops = frustrated_loops(g, m, min_loop=r)
-            if all(abs(j) <= args.ruggedness for (u, v, j) in g2.edges.data("weight")):
-                print(f" * ruggedness {args.ruggedness} satisfied in {i} iterations")
+            if all(abs(j) <= args.range for (u, v, j) in g2.edges.data("weight")):
+                print(f" * range {args.range} satisfied in {i} iterations")
                 break
         else:
-            raise RuntimeError(f"Failed to satisfy ruggedness ({args.ruggedness}) within {args.rejection_iters} iterations")
+            raise RuntimeError(f"Failed to satisfy range ({args.range}) within {args.rejection_iters} iterations")
         loop_lengths = [len(l) for l in loops]
         bins = np.concatenate([np.arange(r, 4*r)-0.5, [1000.0]])
         hist, _ = np.histogram(loop_lengths, bins)
         print(bins)
         print(hist)
-        print([len(c) for c in nx.connected_components(g2) if len(c) > 1])
-        save_ising_instance_graph(g2, args.dest)
+        cc = list(c for c in nx.connected_components(g2) if len(c) > 1)
+        cc.sort(key=lambda c: len(c), reverse=True)
+        ccn = [len(c) for c in cc]
+
+        print(f" * Connected component sizes: {ccn}")
+        if len(cc) > 1:
+            print(f" ** Taking the largest connected component {ccn[0]}")
+            g3 = g2.subgraph(cc[0]).copy()
+        else:
+            g3 = g2
+        bqm = ising_graph_to_bqm(g3)
+        numvar = bqm.num_variables
+        e = bqm.energy((np.ones(numvar, dtype=int), bqm.variables))
+        print(f"* GS Energy: {e}")
+        save_ising_instance_graph(g2.subgraph(cc[0]).copy(), args.dest)
 
 
 if __name__ == "__main__":
