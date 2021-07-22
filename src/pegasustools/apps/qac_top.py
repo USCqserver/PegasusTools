@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import json
 from pegasustools.qac import PegasusQACEmbedding, PegasusQACGraph
-from pegasustools.util.adj import save_graph_adjacency, save_ising_instance_graph
+from pegasustools.util.adj import save_graph_adjacency, save_ising_instance_graph, read_ising_adjacency_graph
 
 from dwave.system import DWaveSampler
 
@@ -48,12 +48,9 @@ def main():
         qac_graph = qac_graph.subtopol(args.L)
     else:
         l = 15
-    if args.plot is not None:
-        fig, ax = plt.subplots(figsize=(8, 8))
-        qac_graph.draw()
-        plt.savefig(args.plot)
     g = qac_graph.g.copy()
 
+    # create a percolation instance
     if args.percolation is not None:
         for (e, ed) in g.edges.items():
             ed["weight"] = -1.0
@@ -64,21 +61,26 @@ def main():
                 nd["bias"] = -1.0
 
     # The integer ordering of a QAC graph is mapped from the lexicographic ordering
-    # of the logical node coordinates (t, x, z, u)
+    # of the logical node coordinates (t, x, z, u), regardless of inactive logical qubits
+    # This means that unused integer labels can be skipped
     sorted_nodes = sorted(g.nodes())
-    node_labels = {str(n): i for i, n in enumerate(sorted_nodes)}
+    node_labels = {n: i for i, n in enumerate(sorted_nodes)}
+    str_node_labels = {str(n): i for i, n in enumerate(sorted_nodes)}
     label_nodes = {i: str(n) for i, n in enumerate(sorted_nodes)}
-    mapping_dict = {"nodes_to_labels": node_labels, "labels_to_nodes": label_nodes}
-
-    g2 = nx.convert_node_labels_to_integers(g, ordering="sorted", label_attribute="qubit")
+    mapping_dict = {"nodes_to_labels": str_node_labels, "labels_to_nodes": label_nodes}
+    # Relabel the graph to integer labels
+    g2 = nx.relabel_nodes(g, node_labels, copy=True)
+    # Set the original logical QAC node string '(t,x,z,u)' as an attribute
+    nx.set_node_attributes(g2, label_nodes, "qubit")
+    # Save the integer label adjacency list in plain text
     save_graph_adjacency(g2, args.dest)
     if args.percolation is not None:
         save_ising_instance_graph(g2, args.percolation)
 
     if args.graphml is not None:
         # stringify qubit locations, then save graphml
-        for n in g2.nodes:
-            g2.nodes[n]["qubit"] = str(g2.nodes[n]["qubit"])
+        #for n in g2.nodes:
+        #    g2.nodes[n]["qubit"] = str(g2.nodes[n]["qubit"])
         nx.readwrite.write_graphml(g2, args.graphml)
     with open(args.labels, 'w') as f:
         json.dump(mapping_dict, f)

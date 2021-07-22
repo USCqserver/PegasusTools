@@ -247,10 +247,10 @@ class PegasusQACGraph:
             deg1_nodes = [n for n in self.g.nodes if self.g.degree[n] < 2]
         print(f"Purged {n_purge} trivial nodes")
 
-    def draw(self):
+    def draw(self, **draw_kwargs):
         pos_list = {node: qac_nice2xy(*node, a=60.0) for node in self.nodes}
         g = self.g
-        nx.draw_networkx(g, pos=pos_list, with_labels=False, node_size=75, font_size=12)
+        nx.draw_networkx(g, pos=pos_list, with_labels=False, font_size=12, **draw_kwargs)
 
     def subtopol(self, l, purge_deg1=True):
         sub_nodes = [n for n in self.nodes if n[1] < l and n[2] < l ]
