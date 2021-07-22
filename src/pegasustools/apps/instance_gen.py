@@ -6,7 +6,7 @@ from pegasustools.util.graph import random_walk_loop
 from pegasustools.util.adj import save_ising_instance_graph, ising_graph_to_bqm
 
 
-def frustrated_loops(g: nx.Graph, m, j=-1.0, min_loop=6, max_iters=10000):
+def frustrated_loops(g: nx.Graph, m, j=-1.0, jf=1.0, min_loop=6, max_iters=10000):
     """
     Generate a frustrated loop problem over the logical graph
     :param g: Logical graph
@@ -32,7 +32,7 @@ def frustrated_loops(g: nx.Graph, m, j=-1.0, min_loop=6, max_iters=10000):
         # randomly invert a coupling
         js = [j for _ in lp]
         i = np.random.randint(0, len(lp))
-        js[i] = -j
+        js[i] = jf
         for u, v, ji in zip(lp[:-1], lp[1:], js):
             g2.edges[u, v]["weight"] += ji
         if nloops >= m:
@@ -77,6 +77,9 @@ def main():
     parser.add_argument("--rejection-iters", type=int, default=1000,
                         help="If a generated instance must satisfy some constraint, the number of allowed attempts "
                         "to reject an instance generate a new one.")
+    #parser.add_argument("--non-degenerate", action='store_true',
+    #                    help="Force the planted ground state of a single clause to be non-degenerate.\n"
+    #                         "\tfl: The AFM coupling strength is reduced to 0.75")
     parser.add_argument("topology", type=str, help="Text file specifying graph topology")
     parser.add_argument("instance_class", choices=["fl", "r3"],
                         help="Instance class to generate")
@@ -97,7 +100,15 @@ def main():
             g2, loops = frustrated_loops(g, m, min_loop=r)
             if all(abs(j) <= args.range for (u, v, j) in g2.edges.data("weight")):
                 print(f" * range {args.range} satisfied in {i} iterations")
-                break
+                cc = list(c for c in nx.connected_components(g2) if len(c) > 1)
+                cc.sort(key=lambda c: len(c), reverse=True)
+                ccn = [len(c) for c in cc]
+                print(f" * Connected component sizes: {ccn}")
+                if len(ccn) > 1:
+                    print(" ** Rejected multiple connected components")
+                    continue
+                else:
+                    break
         else:
             raise RuntimeError(f"Failed to satisfy range ({args.range}) within {args.rejection_iters} iterations")
         loop_lengths = [len(l) for l in loops]
@@ -105,21 +116,12 @@ def main():
         hist, _ = np.histogram(loop_lengths, bins)
         print(bins)
         print(hist)
-        cc = list(c for c in nx.connected_components(g2) if len(c) > 1)
-        cc.sort(key=lambda c: len(c), reverse=True)
-        ccn = [len(c) for c in cc]
 
-        print(f" * Connected component sizes: {ccn}")
-        if len(cc) > 1:
-            print(f" ** Taking the largest connected component {ccn[0]}")
-            g3 = g2.subgraph(cc[0]).copy()
-        else:
-            g3 = g2
-        bqm = ising_graph_to_bqm(g3)
+        bqm = ising_graph_to_bqm(g2)
         numvar = bqm.num_variables
         e = bqm.energy((np.ones(numvar, dtype=int), bqm.variables))
         print(f"* GS Energy: {e}")
-        save_ising_instance_graph(g2.subgraph(cc[0]).copy(), args.dest)
+        save_ising_instance_graph(g2, args.dest)
 
 
 if __name__ == "__main__":
