@@ -1,19 +1,21 @@
 # distutils: language = c++
 # cython: language_level = 3
 import networkx as nx
-import numpy as np
+from numpy.random import Generator, default_rng
 
 
-def random_walk_loop(init_node, graph: nx.Graph, max_iters=1000):
+def random_walk_loop(init_node, graph: nx.Graph, max_iters=1000, rng: Generator=None):
     """
     Creates a loop with a random walk.
     All nodes connected to the init_node must have a degree of at least 2
     :param init_node:
     :param graph:
     :param max_iters:
+    :param rng:
     :return:
     """
-
+    if rng is None:
+        rng = default_rng()
     current_node = init_node
     next_node = None
     g = graph.copy()
@@ -26,7 +28,7 @@ def random_walk_loop(init_node, graph: nx.Graph, max_iters=1000):
         num_neighbors = len(neighbors_list)
         if num_neighbors == 0:
             raise RuntimeError(f"random_walk_loop: No neighbors available in node {current_node}")
-        next_idx = np.random.randint(0, num_neighbors)
+        next_idx = rng.integers(0, num_neighbors)
         next_node = neighbors_list[next_idx]
         g.nodes[current_node]["rw_next"] = (t, next_node)
         if "rw_next" in g.nodes[next_node]:

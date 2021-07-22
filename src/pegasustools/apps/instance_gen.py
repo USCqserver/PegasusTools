@@ -2,11 +2,12 @@
 import argparse
 import networkx as nx
 import numpy as np
+from numpy.random import default_rng, Generator
 from pegasustools.util.graph import random_walk_loop
 from pegasustools.util.adj import save_ising_instance_graph, ising_graph_to_bqm
 
 
-def frustrated_loops(g: nx.Graph, m, j=-1.0, jf=1.0, min_loop=6, max_iters=10000):
+def frustrated_loops(g: nx.Graph, m, j=-1.0, jf=1.0, min_loop=6, max_iters=10000, rng: Generator=None):
     """
     Generate a frustrated loop problem over the logical graph
     :param g: Logical graph
@@ -14,24 +15,34 @@ def frustrated_loops(g: nx.Graph, m, j=-1.0, jf=1.0, min_loop=6, max_iters=10000
     :param j: Coupling strength in each loop
     :return:
     """
+    if rng is None:
+        rng = default_rng()
     g2 = nx.Graph()
     g2.add_nodes_from(g.nodes)
     g2.add_edges_from(g.edges, weight=0.0)
     nodes_list = list(g.nodes)
     num_nodes = len(nodes_list)
+    rand_cache_size = 10*m
+    rand_ints = rng.integers(0, num_nodes, rand_cache_size)
     loops = []
     nloops = 0
-    for _ in range(max_iters):
-        node_idx = np.random.randint(0, num_nodes)
+    rand_idx = 0
+    for i in range(max_iters):
+        if rand_idx >= rand_cache_size:
+            rand_ints = rng.integers(0, num_nodes, rand_cache_size)
+            rand_idx = 0
+        node_idx = rand_ints[rand_idx]
+        rand_idx += 1
+
         node = nodes_list[node_idx]
-        lp = random_walk_loop(node, g2)
+        lp = random_walk_loop(node, g2, rng=rng)
         if len(lp) < min_loop:
             continue
         nloops += 1
         loops.append(lp)
         # randomly invert a coupling
         js = [j for _ in lp]
-        i = np.random.randint(0, len(lp))
+        i = rng.integers(0, len(lp))
         js[i] = jf
         for u, v, ji in zip(lp[:-1], lp[1:], js):
             g2.edges[u, v]["weight"] += ji
@@ -77,6 +88,7 @@ def main():
     parser.add_argument("--rejection-iters", type=int, default=1000,
                         help="If a generated instance must satisfy some constraint, the number of allowed attempts "
                         "to reject an instance generate a new one.")
+    parser.add_argument("--seed", type=int, default=None)
     #parser.add_argument("--non-degenerate", action='store_true',
     #                    help="Force the planted ground state of a single clause to be non-degenerate.\n"
     #                         "\tfl: The AFM coupling strength is reduced to 0.75")
@@ -87,6 +99,9 @@ def main():
                         help="Save file for the instance specification in Ising adjacency format")
 
     args = parser.parse_args()
+    # Seed the RNG
+    rng = default_rng(args.seed)
+
     g: nx.Graph = nx.readwrite.read_adjlist(args.topology, nodetype=int)
 
     if args.instance_class == "fl":
@@ -97,7 +112,7 @@ def main():
         print(f" * num clauses = {m}")
         r = args.min_clause_size
         for i in range(args.rejection_iters):
-            g2, loops = frustrated_loops(g, m, min_loop=r)
+            g2, loops = frustrated_loops(g, m, min_loop=r, rng=rng)
             if all(abs(j) <= args.range for (u, v, j) in g2.edges.data("weight")):
                 print(f" * range {args.range} satisfied in {i} iterations")
                 cc = list(c for c in nx.connected_components(g2) if len(c) > 1)
