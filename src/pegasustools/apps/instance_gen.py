@@ -88,7 +88,10 @@ def main():
     parser.add_argument("--rejection-iters", type=int, default=1000,
                         help="If a generated instance must satisfy some constraint, the number of allowed attempts "
                         "to reject an instance generate a new one.")
-    parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--seed", type=int, default=None,
+                        help="A manual seed for the RNG")
+    parser.add_argument("-n", type=int, default=None,
+                        help="Any integer index. Used in addition to the manual RNG seed if specified.")
     #parser.add_argument("--non-degenerate", action='store_true',
     #                    help="Force the planted ground state of a single clause to be non-degenerate.\n"
     #                         "\tfl: The AFM coupling strength is reduced to 0.75")
@@ -100,7 +103,14 @@ def main():
 
     args = parser.parse_args()
     # Seed the RNG
-    rng = default_rng(args.seed)
+    if args.seed is not None:
+        if args.n is not None:
+            seed = args.seed ^ args.n
+        else:
+            seed = args.seed
+    else:
+        seed = None
+    rng = default_rng(seed)
 
     g: nx.Graph = nx.readwrite.read_adjlist(args.topology, nodetype=int)
 
@@ -114,7 +124,7 @@ def main():
         for i in range(args.rejection_iters):
             g2, loops = frustrated_loops(g, m, min_loop=r, rng=rng)
             if all(abs(j) <= args.range for (u, v, j) in g2.edges.data("weight")):
-                print(f" * range {args.range} satisfied in {i} iterations")
+                print(f" * range {args.range} satisfied in {i+1} iterations")
                 cc = list(c for c in nx.connected_components(g2) if len(c) > 1)
                 cc.sort(key=lambda c: len(c), reverse=True)
                 ccn = [len(c) for c in cc]
