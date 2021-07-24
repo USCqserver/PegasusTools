@@ -44,8 +44,10 @@ def frustrated_loops(g: nx.Graph, m, j=-1.0, jf=1.0, min_loop=6, max_iters=10000
         js = [j for _ in lp]
         i = rng.integers(0, len(lp))
         js[i] = jf
+        # Add to the weights of the entire loop
         for u, v, ji in zip(lp[:-1], lp[1:], js):
             g2.edges[u, v]["weight"] += ji
+        g2.edges[lp[-1], lp[0]]["weight"] += js[-1]
         if nloops >= m:
             break
     else:
@@ -133,6 +135,11 @@ def main():
                     print(" ** Rejected multiple connected components")
                     continue
                 else:
+                    e0 = 0.0
+                    for l in loops:
+                        nl = len(l)
+                        e0 += -nl+2.0
+                    print(f" ** Found {len(loops)} loop instance: e_gs = {e0}")
                     break
         else:
             raise RuntimeError(f"Failed to satisfy range ({args.range}) within {args.rejection_iters} iterations")
