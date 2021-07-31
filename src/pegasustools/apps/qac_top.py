@@ -24,6 +24,7 @@ def main():
                         help="Optionally, a .graphml file to store a complete specification of the graph")
     parser.add_argument("--plot", type=str, default=None,
                         help="Optionally, output a PNG plot of the graph.")
+    parser.add_argument("--plot-instance", type=str, default=None)
     parser.add_argument("--percolation", type=str, default=None,
                         help="Optionally, write a percolation instance to this file."
                         "All couplings are ferromagnetic, the top qubits of the graph are marked with a +1 bias "
@@ -74,6 +75,24 @@ def main():
     nx.set_node_attributes(g2, label_nodes, "qubit")
     # Save the integer label adjacency list in plain text
     save_graph_adjacency(g2, args.dest)
+    if args.plot is not None:
+        fig, ax = plt.subplots(figsize=(12, 12))
+        if args.plot_instance is not None:
+            instance = read_ising_adjacency_graph(args.plot_instance)
+            cols = []
+            for u, v in g2.edges:
+                if instance.has_edge(u, v):
+                    if 'weight' in instance.edges[u,v]:
+                        cols.append(instance.edges[u, v]['weight'])
+                    else:
+                        cols.append(0.0)
+                else:
+                    cols.append(0.0)
+            qac_graph.draw(edge_cmap=plt.cm.bwr, node_size=25, alpha=0.6, width=2.0,
+                           edge_color=cols, edge_vmin=-3.0, edge_vmax=3.0)
+        else:
+            qac_graph.draw(node_size=75,)
+        plt.savefig(args.plot)
     if args.percolation is not None:
         save_ising_instance_graph(g2, args.percolation)
 
