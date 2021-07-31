@@ -181,6 +181,7 @@ class PegasusQACGraph:
                     edges.add((e1, e2))
 
         # Using the nice coordinates of the penalty qubit
+        # Furthermore, all connected node pairs are ordered lexicographically
         # Horizontal-directed external bonds
         #  (t, x, z, 0)  -- (t, x+1, z, 0),  0 <= x < m-2
         for t in range(3):
@@ -208,10 +209,10 @@ class PegasusQACGraph:
         for x in range(m - 1):
             for z in range(m - 1):
                 connect_if_avail((0, x, z, 0), (2, x, z, 1))
-                connect_if_avail((2, x, z, 0), (1, x, z, 1))
+                connect_if_avail((1, x, z, 1), (2, x, z, 0))
         for x in range(1, m - 1):
             for z in range(m - 2):
-                connect_if_avail((1, x, z, 0), (0, x - 1, z + 1, 1))
+                connect_if_avail((0, x - 1, z + 1, 1), (1, x, z, 0))
         # Cross-diagonal bonds
         #  (0, x, z, 0)  -- (1, x+1, z, 1)
         #  (2, x, z, 0)  -- (0, x, z+1, 1)
@@ -221,7 +222,7 @@ class PegasusQACGraph:
                 connect_if_avail((0, x, z, 0), (1, x + 1, z, 1))
         for x in range(m - 1):
             for z in range(m - 2):
-                connect_if_avail((2, x, z, 0), (0, x, z + 1, 1))
+                connect_if_avail((0, x, z + 1, 1), (2, x, z, 0))
                 connect_if_avail((1, x, z, 0), (2, x, z + 1, 1))
 
         self.nodes = qac_nodes
@@ -336,22 +337,28 @@ def _decode_c_array(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
 class PegasusQACEmbedding(StructureComposite):
     def __init__(self, m, child_sampler, cache=True):
         cache_path = ".pegasus_qac_embedding.dat"
+        self._child_nodes = set(child_sampler.nodelist)
+        self._child_edges = set(child_sampler.edgelist)
         if cache and os.path.isfile(cache_path):
             print(f"Loading from {cache_path}")
             with open(cache_path, 'rb') as f:
                 self.qac_graph = pickle.load(f)
         else:
-            self.qac_graph = PegasusQACGraph(m, child_sampler.nodelist, child_sampler.edgelist, strict=True)
+            self.qac_graph = PegasusQACGraph(m, self._child_nodes, self._child_edges, strict=True)
             if cache:
                 print(f"Saving qac graph to {cache_path}")
                 with open(cache_path, 'wb') as f:
                     pickle.dump(self.qac_graph, f)
-        self._child_nodes = set(child_sampler.nodelist)
-        self._child_edges = set(child_sampler.edgelist)
         logical_nodes = list(self.qac_graph.nodes)
         logical_edges = list(self.qac_graph.edges)
         super().__init__(child_sampler, logical_nodes, logical_edges)
 
+    def validate_structure(self, bqm: BQM):
+        bqm = bqm.change_vartype(dimod.SPIN, inplace=False)
+        lin, qua = try_embed_qac_graph(bqm.linear, bqm.quadratic, self.qac_graph.qubit_array,
+                                       self._child_nodes, self._child_edges,
+                                       penalty_strength=0.1, problem_scale=1.0,
+                                       strict=True)
     @bqm_structured
     def sample(self, bqm: BQM, encoding='qac', qac_penalty_strength=0.1, qac_problem_scale=1.0, **parameters):
         """
@@ -390,7 +397,7 @@ class PegasusQACEmbedding(StructureComposite):
         vectors = {}
         if q_err is not None:
             vectors["error_p"] = q_err
-        sub_sampleset = dimod.SampleSet.from_samples(samples, sampleset.vartype, energies, **vectors)
+        sub_sampleset = dimod.SampleSet.from_samples((samples, bqm.variables), sampleset.vartype, energies, **vectors)
 
         return sub_sampleset
 
