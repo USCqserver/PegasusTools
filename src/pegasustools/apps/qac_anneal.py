@@ -67,11 +67,10 @@ def main():
     h5_file = args.output+".h5"
     df_samples.to_hdf(h5_file, key="samples", mode='a', complevel=5, format="table")
     df_properties.to_hdf(h5_file, key="info", mode='a', complevel=5, format="table")
-    return df
     #store = pd.HDFStore(h5_file, mode='a', complevel=5)
     #store["samples"] = df
     #store.close()
 
 
 if __name__ == "__main__":
-    df = main()
+    main()
