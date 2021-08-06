@@ -1,4 +1,5 @@
 import argparse
+import numpy as np
 import pandas as pd
 import dimod
 
@@ -65,7 +66,7 @@ def main():
         print(lo_df.loc[:, ['energy', 'error_p', 'rep', 'num_occurrences']])
     else:
         print(lo_df.loc[:, ['energy', 'rep', 'num_occurrences']])
-    num_gs = len(lo_df)
+    num_gs = np.sum(lo.record.num_occurrences)
     print(f"The lowest energy appears in {num_gs}/{total_reads} samples")
     # samps_df = df = pd.DataFrame(all_results.record.sample, columns=all_results.variables)
     num_vars = len(all_results.variables)
