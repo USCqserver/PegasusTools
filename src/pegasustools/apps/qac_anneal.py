@@ -19,7 +19,7 @@ def main():
 
     problem_file = args.problem
     tf = args.tf
-    bqm = read_ising_adjacency(problem_file, args.scale_j)
+    bqm = read_ising_adjacency(problem_file, 1.0)
     bqm = dimod.BQM(bqm)  # ensure dict-based BQM
     if args.qac_mapping is not None:
         n2l, l2n = read_mapping(args.qac_mapping)
@@ -53,23 +53,26 @@ def main():
 
     qac_sampler = PegasusQACEmbedding(16, dw_sampler)
     qac_sampler.validate_structure(bqm)
-    aggr_results = run_sampler(qac_sampler, bqm, args, **qac_args, **dw_kwargs, **sched_kwags)
-    all_results : dimod.SampleSet = dimod.concatenate(aggr_results)
+    sampler = dimod.ScaleComposite(qac_sampler)
+    aggr_results = run_sampler(sampler, bqm, args, scalar=1.0/args.scale_j, **qac_args, **dw_kwargs, **sched_kwags)
+    all_results: dimod.SampleSet = dimod.concatenate(aggr_results)
     if mapping_n2l is not None:
         all_results.relabel_variables(mapping_n2l)
+    lo = all_results.lowest()
+    lo_df = lo.to_pandas_dataframe()
+    print(lo_df.loc[:, ['energy', 'error_p', 'num_occurrences']])
     # samps_df = df = pd.DataFrame(all_results.record.sample, columns=all_results.variables)
     num_vars = len(all_results.variables)
-    rec = all_results.record
 
     df = all_results.to_pandas_dataframe()
     df_samples = df.iloc[:, :num_vars].astype("int8")
     df_properties = df.iloc[:, num_vars:]
     h5_file = args.output+".h5"
-    df_samples.to_hdf(h5_file, key="samples", mode='a', complevel=5, format="table")
-    df_properties.to_hdf(h5_file, key="info", mode='a', complevel=5, format="table")
-    #store = pd.HDFStore(h5_file, mode='a', complevel=5)
-    #store["samples"] = df
-    #store.close()
+    store = pd.HDFStore(h5_file, mode='w', complevel=5)
+    store.append("samples", df_samples)
+    store.append("info", df_properties)
+    #df_samples.to_hdf(h5_file, key="samples", mode='a', complevel=5, format="table")
+    #df_properties.to_hdf(h5_file, key="info", mode='a', complevel=5, format="table")
 
 
 if __name__ == "__main__":
