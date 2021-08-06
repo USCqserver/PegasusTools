@@ -2,6 +2,7 @@
 import argparse
 import networkx as nx
 import numpy as np
+import json
 from numpy.random import default_rng, Generator
 from pegasustools.util.graph import random_walk_loop
 from pegasustools.util.adj import save_ising_instance_graph, ising_graph_to_bqm
@@ -90,6 +91,9 @@ def main():
     parser.add_argument("--rejection-iters", type=int, default=1000,
                         help="If a generated instance must satisfy some constraint, the number of allowed attempts "
                         "to reject an instance generate a new one.")
+    parser.add_argument("--instance-info", type=int, default=None,
+                        help="Save any additional properties (e.g. ground state energy) of the generated instance "
+                             "in json format")
     parser.add_argument("--seed", type=int, default=None,
                         help="A manual seed for the RNG")
     parser.add_argument("-n", type=int, default=None,
@@ -154,6 +158,14 @@ def main():
         e = bqm.energy((np.ones(numvar, dtype=int), bqm.variables))
         print(f"* GS Energy: {e}")
         save_ising_instance_graph(g2, args.dest)
+        if args.instance_info is not None:
+            props = {"gs_energy": e,
+                     "num_loops": len(loops),
+                     "size": numvar
+                     }
+            with open(args.instance_info) as f:
+                json.dump(props, f)
+
 
 
 if __name__ == "__main__":
