@@ -55,16 +55,16 @@ def main():
     qac_sampler = PegasusQACEmbedding(16, dw_sampler)
     qac_sampler.validate_structure(bqm)
     sampler = dimod.ScaleComposite(qac_sampler)
-    aggr_results = run_sampler(sampler, bqm, args, scalar=1.0/args.scale_j, **qac_args, **dw_kwargs, **sched_kwags)
+    aggr_results = run_sampler(sampler, bqm, args, aggregate=False, scalar=1.0/args.scale_j, **qac_args, **dw_kwargs, **sched_kwags)
     all_results: dimod.SampleSet = dimod.concatenate(aggr_results)
     if mapping_n2l is not None:
         all_results.relabel_variables(mapping_n2l)
     lo = all_results.lowest()
     lo_df = lo.to_pandas_dataframe()
     if args.qac_mode == "qac":
-        print(lo_df.loc[:, ['energy', 'error_p', 'num_occurrences']])
+        print(lo_df.loc[:, ['energy', 'error_p', 'rep', 'num_occurrences']])
     else:
-        print(lo_df.loc[:, ['energy', 'num_occurrences']])
+        print(lo_df.loc[:, ['energy', 'rep', 'num_occurrences']])
     # samps_df = df = pd.DataFrame(all_results.record.sample, columns=all_results.variables)
     num_vars = len(all_results.variables)
 

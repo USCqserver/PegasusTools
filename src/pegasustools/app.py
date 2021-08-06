@@ -73,7 +73,7 @@ def save_cell_results(raw_results: dimod.SampleSet, sched, args, additional_colu
     np.savetxt(sched_path, sched_arr, delimiter=',')
 
 
-def run_sampler(sampler, bqm, args, **sampler_kwargs):
+def run_sampler(sampler, bqm, args, aggregate=True, **sampler_kwargs):
     print("Sampling...")
     results_list = []
     # Collect the futures for each repetition
@@ -85,12 +85,23 @@ def run_sampler(sampler, bqm, args, **sampler_kwargs):
     aggr_results = []
     for i, result in enumerate(results_list):
         print(f"{i + 1}/{args.reps}")
-        aggr_results.append(result.aggregate())
+        samps = result.record.sample
+        datvec : dict = result.data_vectors
+        energies = datvec.pop('energy')
+        num_occurrences = datvec.pop('num_occurrences')
+        datvec['rep'] = np.full(energies.shape[0], i, dtype=np.int)
+        res = dimod.SampleSet.from_samples((samps, result.variables), result.vartype, energies,
+                                           info=result.info, num_occurrences=num_occurrences,
+                                           aggregate_samples=False, sort_labels=False, **datvec)
+        if aggregate:
+            aggr_results.append(res.aggregate())
+        else:
+            aggr_results.append(res)
 
     return aggr_results
 
+
 def profile(dw_sampler, bqm):
-    from .pqubit import PegasusCellEmbedding
     print("Profiling cell embedding...")
     import pstats, cProfile
     cProfile.runctx("PegasusCellEmbedding(16, dw_sampler, cache=False)", globals(), locals(), "Profile.prof")
