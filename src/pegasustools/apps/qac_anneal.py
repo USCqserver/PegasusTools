@@ -51,7 +51,7 @@ def main():
     dw_kwargs = {"num_spin_reversal_transforms": 1 if args.rand_gauge else 0,
                  "num_reads": args.num_reads,
                  "auto_scale": False}
-
+    total_reads = args.num_reads * args.reps
     qac_sampler = PegasusQACEmbedding(16, dw_sampler)
     qac_sampler.validate_structure(bqm)
     sampler = dimod.ScaleComposite(qac_sampler)
@@ -60,11 +60,13 @@ def main():
     if mapping_n2l is not None:
         all_results.relabel_variables(mapping_n2l)
     lo = all_results.lowest()
-    lo_df = lo.to_pandas_dataframe()
+    lo_df: pd.DataFrame = lo.to_pandas_dataframe()
     if args.qac_mode == "qac":
         print(lo_df.loc[:, ['energy', 'error_p', 'rep', 'num_occurrences']])
     else:
         print(lo_df.loc[:, ['energy', 'rep', 'num_occurrences']])
+    num_gs = len(lo_df)
+    print(f"The lowest energy appears in {num_gs}/{total_reads} samples")
     # samps_df = df = pd.DataFrame(all_results.record.sample, columns=all_results.variables)
     num_vars = len(all_results.variables)
 
