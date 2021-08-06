@@ -36,6 +36,7 @@ def add_qac_arguments(parser: argparse.ArgumentParser):
                         help="Penalty strength for QAC")
     parser.add_argument("--qac-scale", type=float, default=1.0,
                         help="Scale factor for logical couplings for QAC")
+    parser.add_argument("--qac-mode", type=str, choices=['qac', 'c', 'all'], default='qac')
 
 
 def save_cell_results(raw_results: dimod.SampleSet, sched, args, additional_columns=None):

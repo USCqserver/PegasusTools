@@ -360,18 +360,18 @@ class PegasusQACEmbedding(StructureComposite):
                                        penalty_strength=0.1, problem_scale=1.0,
                                        strict=True)
     @bqm_structured
-    def sample(self, bqm: BQM, encoding='qac', qac_penalty_strength=0.1, qac_problem_scale=1.0, **parameters):
+    def sample(self, bqm: BQM, qac_decoding='qac', qac_penalty_strength=0.1, qac_problem_scale=1.0, **parameters):
         """
 
         :param bqm:
-        :param encoding: 'qac', 'c', or 'all'
+        :param qac_decoding: 'qac', 'c', or 'all'
         :param qac_penalty_strength
         :param qac_problem_scale
         :param parameters:
         :return:
         """
-        if encoding not in ['qac', 'c', 'all']:
-            raise RuntimeError(f"Invalid QAC encoding option '{encoding}'")
+        if qac_decoding not in ['qac', 'c', 'all']:
+            raise RuntimeError(f"Invalid QAC decoding option '{qac_decoding}'")
 
         bqm = bqm.change_vartype(dimod.SPIN, inplace=False)
         lin, qua = try_embed_qac_graph(bqm.linear, bqm.quadratic, self.qac_graph.qubit_array,
@@ -381,18 +381,18 @@ class PegasusQACEmbedding(StructureComposite):
         # submit the problem
         sampleset: dimod.SampleSet = self.child.sample(sub_bqm, **parameters)
 
-        return self._extract_qac_solutions(encoding, sampleset, bqm)
+        return self._extract_qac_solutions(qac_decoding, sampleset, bqm)
 
-    def _extract_qac_solutions(self, encoding, sampleset: dimod.SampleSet, bqm: BQM):
+    def _extract_qac_solutions(self, decoding, sampleset: dimod.SampleSet, bqm: BQM):
         q_err=None
-        if encoding == 'qac':
+        if decoding == 'qac':
             samples, energies, q_err = _decode_qac_array(sampleset, self.qac_graph.qubit_array, bqm)
-        elif encoding == 'c':
+        elif decoding == 'c':
             samples, energies = _decode_c_array(sampleset, self.qac_graph.qubit_array, bqm)
-        elif encoding == 'all':
+        elif decoding == 'all':
             samples, energies = _decode_all_array(sampleset, self.qac_graph.qubit_array, bqm, ancilla=False)
         else:
-            raise RuntimeError(f" ** Invalid encoding option {encoding}")
+            raise RuntimeError(f" ** Invalid decoding option {decoding}")
 
         vectors = {}
         if q_err is not None:

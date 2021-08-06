@@ -45,6 +45,7 @@ def main():
     qac_args = {
         "qac_penalty_strength": args.qac_penalty,
         "qac_problem_scale": args.qac_scale,
+        "qac_decoding": args.qac_mode
     }
     sched_kwags = {"anneal_schedule": sched} if sched is not None else {"annealing_time": args.tf}
     dw_kwargs = {"num_spin_reversal_transforms": 1 if args.rand_gauge else 0,
@@ -60,7 +61,10 @@ def main():
         all_results.relabel_variables(mapping_n2l)
     lo = all_results.lowest()
     lo_df = lo.to_pandas_dataframe()
-    print(lo_df.loc[:, ['energy', 'error_p', 'num_occurrences']])
+    if args.qac_mode == "qac":
+        print(lo_df.loc[:, ['energy', 'error_p', 'num_occurrences']])
+    else:
+        print(lo_df.loc[:, ['energy', 'num_occurrences']])
     # samps_df = df = pd.DataFrame(all_results.record.sample, columns=all_results.variables)
     num_vars = len(all_results.variables)
 
@@ -71,6 +75,7 @@ def main():
     store = pd.HDFStore(h5_file, mode='w', complevel=5)
     store.append("samples", df_samples)
     store.append("info", df_properties)
+    store.close()
     #df_samples.to_hdf(h5_file, key="samples", mode='a', complevel=5, format="table")
     #df_properties.to_hdf(h5_file, key="info", mode='a', complevel=5, format="table")
 
