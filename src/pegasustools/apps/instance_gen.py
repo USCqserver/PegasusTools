@@ -94,7 +94,7 @@ def main():
                         "to reject an instance generate a new one.")
     parser.add_argument("--instance-info", type=str, default=None,
                         help="Save any additional properties (e.g. ground state energy) of the generated instance "
-                             "in json format")
+                             "in yaml (.yml) format")
     parser.add_argument("--seed", type=int, default=None,
                         help="A manual seed for the RNG")
     parser.add_argument("-n", type=int, default=None,
