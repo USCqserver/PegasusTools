@@ -38,7 +38,8 @@ setup(
         "pandas",
         "networkx",
         "dwave_networkx",
-        "dwave_system"
+        "dwave_system",
+        "pyyaml"
     ],
     entry_points={
         'console_scripts': [
