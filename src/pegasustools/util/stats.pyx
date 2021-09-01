@@ -6,7 +6,7 @@ def dirichlet_samp(long n_samps, double[:] rand_gaps):
     cdef double[:] sorted_rands
     cdef long i
     if n_samps == 1: # single sample edge case
-        rand_gaps[0] = 0.0
+        rand_gaps[0] = 1.0
         return
     rands = np.random.rand(n_samps-1)
     sorted_rands = np.sort(rands)
