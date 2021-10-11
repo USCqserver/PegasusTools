@@ -63,20 +63,19 @@ def frustrated_loops(g: nx.Graph, m, j=-1.0, jf=1.0, min_loop=6, max_iters=10000
     return g2, loops
 
 
-def random_couplings(nodelist, edgelist):
-    lin = {n: 0.0 for n in nodelist}
-    #for n in nodelist:
-    #    g.add_node(n, bias=0.0)
-    qua = {}
-    num_edges = len(edgelist)
-    # Generate random couplings
-    rand_js = np.random.randint(1, 4, [num_edges]) * (2 * np.random.randint(0, 2, [num_edges]) - 1)
+def random_couplings(g: nx.Graph, rng: Generator=None):
+    num_edges = g.number_of_edges()
+    if rng is None:
+        rng = default_rng()
+    g2 = nx.Graph()
+    g2.add_nodes_from(g.nodes)
+    g2.add_edges_from(g.edges, weight=0.0)
+    rand_js = rng.integers(1, 4, [num_edges]) * (2 * rng.integers(0, 2, [num_edges]) - 1)
     rand_js = rand_js / 6.0
-    for e, j in zip(edgelist, rand_js):
-        qua[e] = j
-        #g.add_edge(e[0], e[1], coupling=j)
+    for i, (u, v) in enumerate(g2.edges):
+        g2.edges[u, v]['weight'] = rand_js[i]
 
-    return lin, qua
+    return g2
 
 
 def main():
@@ -120,9 +119,8 @@ def main():
     rng = default_rng(seed)
 
     g: nx.Graph = nx.readwrite.read_adjlist(args.topology, nodetype=int)
-
+    n = g.number_of_nodes()
     if args.instance_class == "fl":
-        n = g.number_of_nodes()
         m = int(args.clause_density * n)
         print(f" * instance size = {n}")
         print(f" * clause density = {args.clause_density}")
@@ -166,6 +164,9 @@ def main():
                      }
             with open(args.instance_info, 'w') as f:
                 yaml.safe_dump(props, f, default_flow_style=False)
+    elif args.instance_class == "r3":
+        g2 = random_couplings(g, rng)
+        save_ising_instance_graph(g2, args.dest)
 
 
 if __name__ == "__main__":
