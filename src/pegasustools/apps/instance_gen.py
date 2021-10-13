@@ -78,6 +78,36 @@ def random_couplings(g: nx.Graph, rng: Generator=None):
     return g2
 
 
+def binomial_spin_glass(g: nx.Graph, rng: Generator=None):
+    num_edges = g.number_of_edges()
+    if rng is None:
+        rng = default_rng()
+    g2 = nx.Graph()
+    g2.add_nodes_from(g.nodes)
+    g2.add_edges_from(g.edges, weight=0.0)
+    rand_js = (2.0 * rng.integers(0, 2, [num_edges]) - 1)
+    for i, (u, v) in enumerate(g2.edges):
+        g2.edges[u, v]['weight'] = rand_js[i]
+
+    return g2
+
+
+def dilute_bonds(g: nx.Graph, p, rng: Generator=None):
+    num_edges = g.number_of_edges()
+    if rng is None:
+        rng = default_rng()
+    rand_eps = rng.binomial(1, p, [num_edges])
+
+    zero_edges = []
+    for eps, (u, v) in zip(rand_eps, g.edges):
+        if eps == 0:
+            zero_edges.append((u, v))
+
+    g.remove_edges_from(zero_edges)
+    g.remove_nodes_from(list(nx.isolates(g)))
+    return g
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate a problem instance over an arbitrary graph"
@@ -94,6 +124,8 @@ def main():
     parser.add_argument("--instance-info", type=str, default=None,
                         help="Save any additional properties (e.g. ground state energy) of the generated instance "
                              "in yaml (.yml) format")
+    parser.add_argument("--bond-dilution", type=float, default=None,
+                        help="Dilute the bonds by a certain probability.")
     parser.add_argument("--seed", type=int, default=None,
                         help="A manual seed for the RNG")
     parser.add_argument("-n", type=int, default=None,
@@ -102,7 +134,7 @@ def main():
     #                    help="Force the planted ground state of a single clause to be non-degenerate.\n"
     #                         "\tfl: The AFM coupling strength is reduced to 0.75")
     parser.add_argument("topology", type=str, help="Text file specifying graph topology")
-    parser.add_argument("instance_class", choices=["fl", "r3"],
+    parser.add_argument("instance_class", choices=["fl", "r3", "bsg"],
                         help="Instance class to generate")
     parser.add_argument("dest", type=str,
                         help="Save file for the instance specification in Ising adjacency format")
@@ -166,6 +198,11 @@ def main():
                 yaml.safe_dump(props, f, default_flow_style=False)
     elif args.instance_class == "r3":
         g2 = random_couplings(g, rng)
+        save_ising_instance_graph(g2, args.dest)
+    elif args.instance_class == "bsg":
+        g2 = binomial_spin_glass(g, rng)
+        if args.bond_dilution is not None:
+            g2 = dilute_bonds(g2, args.bond_dilution, rng)
         save_ising_instance_graph(g2, args.dest)
 
 
