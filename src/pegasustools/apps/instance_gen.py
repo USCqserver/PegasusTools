@@ -71,7 +71,7 @@ def random_couplings(g: nx.Graph, rng: Generator=None):
     g2.add_nodes_from(g.nodes)
     g2.add_edges_from(g.edges, weight=0.0)
     rand_js = rng.integers(1, 4, [num_edges]) * (2 * rng.integers(0, 2, [num_edges]) - 1)
-    rand_js = rand_js / 6.0
+    # rand_js = rand_js / 6.0
     for i, (u, v) in enumerate(g2.edges):
         g2.edges[u, v]['weight'] = rand_js[i]
 
