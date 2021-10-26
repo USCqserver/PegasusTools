@@ -35,6 +35,7 @@ setup(
         "cython",
         "dimod",
         "numpy",
+        "scipy",
         "pandas",
         "networkx",
         "dwave_networkx",
