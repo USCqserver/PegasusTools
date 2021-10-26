@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import json
 from pegasustools.qac import PegasusQACEmbedding, PegasusQACGraph
-from pegasustools.util.adj import save_graph_adjacency, save_ising_instance_graph, read_ising_adjacency_graph
+from pegasustools.util.adj import save_graph_adjacency, save_ising_instance_graph, read_ising_adjacency_graph, read_mapping
 
 from dwave.system import DWaveSampler
 
@@ -69,6 +69,8 @@ def main():
     str_node_labels = {str(n): i for i, n in enumerate(sorted_nodes)}
     label_nodes = {i: str(n) for i, n in enumerate(sorted_nodes)}
     mapping_dict = {"nodes_to_labels": str_node_labels, "labels_to_nodes": label_nodes}
+    #
+    n2l, l2n = read_mapping(args.labels)
     # Relabel the graph to integer labels
     g2 = nx.relabel_nodes(g, node_labels, copy=True)
     # Set the original logical QAC node string '(t,x,z,u)' as an attribute
@@ -80,16 +82,16 @@ def main():
         if args.plot_instance is not None:
             instance = read_ising_adjacency_graph(args.plot_instance)
             cols = []
+            edgelist=[]
             for u, v in g2.edges:
                 if instance.has_edge(u, v):
-                    if 'weight' in instance.edges[u,v]:
-                        cols.append(instance.edges[u, v]['weight'])
-                    else:
-                        cols.append(0.0)
-                else:
-                    cols.append(0.0)
+                    if 'weight' in instance.edges[u, v]:
+                        w = instance.edges[u, v]['weight']
+                        if w != 0.0:
+                            cols.append(instance.edges[u, v]['weight'])
+                            edgelist.append((l2n[u], l2n[v]))
             qac_graph.draw(edge_cmap=plt.cm.bwr, node_size=25, alpha=0.6, width=2.0,
-                           edge_color=cols, edge_vmin=-3.0, edge_vmax=3.0)
+                           edge_color=cols, edgelist=edgelist, edge_vmin=-1.0, edge_vmax=1.0)
         else:
             qac_graph.draw(node_size=75,)
         plt.savefig(args.plot)
