@@ -1,5 +1,6 @@
 import numpy as np
 import yaml
+from . import tts
 
 
 class TamcPtResults:
@@ -47,3 +48,71 @@ def read_gs_energies(instance_template: str, l_list,  idx_list, ):
                 energies = np.asarray(pt_icm_info['gs_energies'])
                 gs_energies[i, j] = energies[-1]
     return gs_energies
+
+
+def optimal_tts_dist(tf, nts_arr, nsweeps):
+    nsamps = len(nts_arr)
+    # Optimal time-to solution by CDF
+    ts_raw = tf * nts_arr / nsweeps
+    pgs_arr = np.arange(1, nsamps + 1) / (nsamps + 1)
+    tts_arr = tts(pgs_arr, ts_raw)
+    opt_tts_idx = np.argmin(tts_arr)
+    opt_tts = tts_arr[opt_tts_idx]
+    opt_sweeps = nts_arr[opt_tts_idx]
+
+    return opt_sweeps, opt_tts, opt_tts_idx
+
+
+def read_nts_dist(file_fmt, num_reps, gs_energy, reps=0.0, eps=1.0e-4):
+    """
+    Evaluate optimal time-to-solution
+    """
+    nts_list = []
+    time_list = []
+    if not isinstance(reps, list):
+        r_eps_list = [reps]
+    else:
+        r_eps_list = reps
+
+    pt_res_list = []
+    for r in range(num_reps):
+        pt_res_list.append(TamcPtResults(file_fmt.format(r=r)))
+
+    nsweeps = None
+    reps_results = {'opt_sweeps': [], 'opt_tts': [], 'opt_tts_idx': []}
+    for reps in r_eps_list:
+        res_dict = {}
+        for r in range(num_reps):
+            pt_res = pt_res_list[r]
+            nts, _ = pt_res.cross_time(gs_energy, eps=eps, reps=reps)
+            t = pt_res.timing
+            nts_list.append(nts)
+            time_list.append(t)
+            nsweeps = pt_res.num_sweeps
+
+        avg_t = np.mean(time_list)
+        nts_arr = np.asarray(nts_list)
+        nts_arr = np.sort(nts_arr)[:num_reps - 1]
+
+        opt_sweeps, opt_tts, opt_tts_idx = optimal_tts_dist(avg_t, nts_arr, nsweeps)
+
+        reps_results['opt_sweeps'].append(opt_sweeps)
+        reps_results['opt_tts'].append(opt_tts)
+        reps_results['opt_tts_idx'].append(opt_tts_idx)
+
+    return reps_results
+
+
+def import_pticm_dat(file_fmt, idxlist, gs_energies, reps=100, r_eps=0.0, eps=1.0e-4, maxsweeps=2 ** 31):
+    pticm_dict = {'opt_sweeps': [], 'opt_tts': [], 'opt_tts_idx': []}
+    for i, n in enumerate(idxlist):
+        gs_e = gs_energies[i]
+        reps_results = read_nts_dist(file_fmt.format(n=n), reps, gs_e,
+                                     reps=r_eps, eps=eps, maxsweeps=maxsweeps)
+        for k in pticm_dict.keys():
+            pticm_dict[k].append(np.asarray(reps_results[k]))
+
+    for k in pticm_dict.keys():
+        pticm_dict[k] = np.stack(pticm_dict[k], axis=1)
+
+    return pticm_dict

@@ -2,6 +2,10 @@ import numpy as np
 import scipy.stats as stats
 
 
+def not_nan(x):
+    return x[np.logical_not(np.isnan(x))]
+
+
 def weighted_quantile(values, quantiles, sample_weight):
     """ Very close to numpy.percentile, but supports weights.
     NOTE: quantiles should be in [0, 1]!
