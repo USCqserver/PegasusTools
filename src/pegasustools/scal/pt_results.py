@@ -33,16 +33,17 @@ class TamcPtResults:
 
 
 def read_gs_energies(instance_template: str, l_list,  idx_list, ):
-    gs_energies = np.zeros(len(l_list), len(idx_list))
+    gs_energies = np.zeros((len(l_list), len(idx_list)))
     for i, l in enumerate(l_list):
         for j, n in enumerate(idx_list):
             file = instance_template.format(l=l, n=n)
+            #print(file)
             with open(file) as f:
                 lines = []
-                for l in f:
-                    if l.startswith("gs_states"):
+                for line in f:
+                    if line.startswith("gs_states"):
                         break
-                    lines.append(l)
+                    lines.append(line)
                 yaml_string = "\n".join(lines)
                 pt_icm_info = yaml.safe_load(yaml_string)
                 energies = np.asarray(pt_icm_info['gs_energies'])
@@ -116,3 +117,4 @@ def import_pticm_dat(file_fmt, idxlist, gs_energies, reps=100, r_eps=0.0, eps=1.
         pticm_dict[k] = np.stack(pticm_dict[k], axis=1)
 
     return pticm_dict
+
