@@ -109,7 +109,7 @@ def import_pticm_dat(file_fmt, idxlist, gs_energies, reps=100, r_eps=0.0, eps=1.
     for i, n in enumerate(idxlist):
         gs_e = gs_energies[i]
         reps_results = read_nts_dist(file_fmt.format(n=n), reps, gs_e,
-                                     reps=r_eps, eps=eps, maxsweeps=maxsweeps)
+                                     reps=r_eps, eps=eps)
         for k in pticm_dict.keys():
             pticm_dict[k].append(np.asarray(reps_results[k]))
 
