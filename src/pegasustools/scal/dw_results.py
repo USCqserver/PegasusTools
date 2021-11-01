@@ -47,7 +47,7 @@ class DwRes:
 
 
 def read_dw_results(file_template, eps_r_list, l_list, tf_list, idx_list, gauges,
-                    gs_energies, err_p=True):
+                    gs_energies, err_p=False):
     """
 
     :param file_template:  Formattable string including {l}, {n}, and {tf}
@@ -61,14 +61,15 @@ def read_dw_results(file_template, eps_r_list, l_list, tf_list, idx_list, gauges
             was broken
     :return:
     """
-    errp_arr = np.zeros((len(l_list), len(tf_list), len(idx_list), gauges))
-    pgs_arr = np.zeros((len(l_list), len(tf_list), len(idx_list), gauges)) if err_p else None
+
+    pgs_arr = np.zeros((len(eps_r_list), len(l_list), len(tf_list), len(idx_list), gauges))
+    errp_arr = np.zeros((len(l_list), len(tf_list), len(idx_list), gauges)) if err_p else None
 
     for i, l in enumerate(l_list):
         for j, tf in enumerate(tf_list):
             for k, n in enumerate(idx_list):
-                dw_res = DwRes(file_template, gs_energy=gs_energies[i, k])
-                pgs_arr[i, j, k, :] = dw_res.pgs_by_gauge(reps=eps_r_list)
+                dw_res = DwRes(file_template.format(l=l, tf=tf, n=n), gs_energy=gs_energies[i, k])
+                pgs_arr[:, i, j, k, :] = dw_res.pgs_by_gauge(reps=eps_r_list)
                 if err_p:
                     errp_arr[i, j, k, :] = dw_res.error_p_by_gauge()
 

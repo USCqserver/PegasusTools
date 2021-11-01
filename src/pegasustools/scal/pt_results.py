@@ -80,12 +80,14 @@ def read_nts_dist(file_fmt, num_reps, gs_energy, reps=0.0, eps=1.0e-4):
         pt_res_list.append(TamcPtResults(file_fmt.format(r=r)))
 
     nsweeps = None
-    reps_results = {'opt_sweeps': [], 'opt_tts': [], 'opt_tts_idx': []}
+    reps_results = {'opt_sweeps': [], 'opt_tts': [], 'opt_tts_idx': [], 'cross_idxs': []}
     for reps in r_eps_list:
         res_dict = {}
+        cross_idx_list = []
         for r in range(num_reps):
             pt_res = pt_res_list[r]
-            nts, _ = pt_res.cross_time(gs_energy, eps=eps, reps=reps)
+            nts, cross_idx = pt_res.cross_time(gs_energy, eps=eps, reps=reps)
+            cross_idx_list.append(cross_idx)
             t = pt_res.timing
             nts_list.append(nts)
             time_list.append(t)
@@ -100,12 +102,14 @@ def read_nts_dist(file_fmt, num_reps, gs_energy, reps=0.0, eps=1.0e-4):
         reps_results['opt_sweeps'].append(opt_sweeps)
         reps_results['opt_tts'].append(opt_tts)
         reps_results['opt_tts_idx'].append(opt_tts_idx)
+        reps_results['cross_idxs']. append(np.asarray(cross_idx_list))
 
+    reps_results['cross_idxs'] = np.stack(reps_results['cross_idxs'])
     return reps_results
 
 
 def import_pticm_dat(file_fmt, idxlist, gs_energies, reps=100, r_eps=0.0, eps=1.0e-4, maxsweeps=2 ** 31):
-    pticm_dict = {'opt_sweeps': [], 'opt_tts': [], 'opt_tts_idx': []}
+    pticm_dict = {'opt_sweeps': [], 'opt_tts': [], 'opt_tts_idx': [], 'cross_idxs': []}
     for i, n in enumerate(idxlist):
         gs_e = gs_energies[i]
         reps_results = read_nts_dist(file_fmt.format(n=n), reps, gs_e,
