@@ -10,13 +10,13 @@ from pegasustools.util.sched import interpret_schedule
 from dwave.system import DWaveSampler
 
 
-def main():
+def main(args=None):
     parser = argparse.ArgumentParser()
     add_general_arguments(parser)
     add_qac_arguments(parser)
     parser.add_argument("--qac-mapping", type=str, default=None,
                         help="Topology mapping to QAC graph")
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     problem_file = args.problem
     tf = args.tf
