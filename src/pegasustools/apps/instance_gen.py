@@ -108,6 +108,20 @@ def dilute_bonds(g: nx.Graph, p, rng: Generator=None):
     return g
 
 
+def dilute_nodes(g: nx.Graph, p, rng: Generator=None):
+    num_nodes = g.number_of_nodes()
+    if rng is None:
+        rng = default_rng()
+    rand_eps = rng.binomial(1, p, [num_nodes])
+
+    del_nodes = []
+    for eps, n in zip(rand_eps, g.nodes):
+        if eps == 0:
+            del_nodes.append(n)
+    g.remove_nodes_from(del_nodes)
+    return g
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate a problem instance over an arbitrary graph"
@@ -124,6 +138,8 @@ def main():
     parser.add_argument("--instance-info", type=str, default=None,
                         help="Save any additional properties (e.g. ground state energy) of the generated instance "
                              "in yaml (.yml) format")
+    parser.add_argument("--dilution", type=float, default=None,
+                        help="Dilute the nodes by a certain probability.")
     parser.add_argument("--bond-dilution", type=float, default=None,
                         help="Dilute the bonds by a certain probability.")
     parser.add_argument("--seed", type=int, default=None,
@@ -152,6 +168,7 @@ def main():
 
     g: nx.Graph = nx.readwrite.read_adjlist(args.topology, nodetype=int)
     n = g.number_of_nodes()
+    # FL class is treated specially right now
     if args.instance_class == "fl":
         m = int(args.clause_density * n)
         print(f" * instance size = {n}")
@@ -196,14 +213,21 @@ def main():
                      }
             with open(args.instance_info, 'w') as f:
                 yaml.safe_dump(props, f, default_flow_style=False)
-    elif args.instance_class == "r3":
+        return
+    # Generic random instances (no gs energy is known)
+    if args.instance_class == "r3":
         g2 = random_couplings(g, rng)
-        save_ising_instance_graph(g2, args.dest)
     elif args.instance_class == "bsg":
         g2 = binomial_spin_glass(g, rng)
-        if args.bond_dilution is not None:
-            g2 = dilute_bonds(g2, args.bond_dilution, rng)
-        save_ising_instance_graph(g2, args.dest)
+    else:
+        raise RuntimeError(f"Instance Class {args.instance_class} is not known")
+    # Apply dilution if requested
+    if args.dilution is not None:
+        g2 = dilute_nodes(g2, args.dilution, rng)
+    if args.bond_dilution is not None:
+        g2 = dilute_bonds(g2, args.bond_dilution, rng)
+
+    save_ising_instance_graph(g2, args.dest)
 
 
 if __name__ == "__main__":
