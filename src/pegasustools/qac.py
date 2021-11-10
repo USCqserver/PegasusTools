@@ -384,7 +384,9 @@ class PegasusQACEmbedding(StructureComposite):
         return self._extract_qac_solutions(qac_decoding, sampleset, bqm)
 
     def _extract_qac_solutions(self, decoding, sampleset: dimod.SampleSet, bqm: BQM):
-        q_err=None
+        q_err = None
+        num_occurrences = sampleset.data_vectors['num_occurrences']
+        info = sampleset.info
         if decoding == 'qac':
             samples, energies, q_err = _decode_qac_array(sampleset, self.qac_graph.qubit_array, bqm)
         elif decoding == 'c':
@@ -397,7 +399,8 @@ class PegasusQACEmbedding(StructureComposite):
         vectors = {}
         if q_err is not None:
             vectors["error_p"] = q_err
-        sub_sampleset = dimod.SampleSet.from_samples((samples, bqm.variables), sampleset.vartype, energies, **vectors)
+        sub_sampleset = dimod.SampleSet.from_samples((samples, bqm.variables), sampleset.vartype, energies,
+                                                     info=info, num_occurrences=num_occurrences, **vectors)
 
         return sub_sampleset
 
