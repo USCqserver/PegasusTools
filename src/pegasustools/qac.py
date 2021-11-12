@@ -309,7 +309,9 @@ def _decode_all_array(sampleset: dimod.SampleSet, qac_map, bqm: BQM, ancilla=Fal
     nsamps = q_values.shape[0]
     q_values = np.reshape(q_values, [nsamps*p, -1])
     energies = bqm.energies((q_values, bqm.variables))
-    return q_values, energies
+    num_occurrences = sampleset.data_vectors['num_occurrences']
+    num_occurrences_all = np.tile(num_occurrences, (p, 1)).transpose().flatten()
+    return q_values, energies, num_occurrences_all
 
 
 def _decode_c_array(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
@@ -392,7 +394,7 @@ class PegasusQACEmbedding(StructureComposite):
         elif decoding == 'c':
             samples, energies = _decode_c_array(sampleset, self.qac_graph.qubit_array, bqm)
         elif decoding == 'all':
-            samples, energies = _decode_all_array(sampleset, self.qac_graph.qubit_array, bqm, ancilla=False)
+            samples, energies, num_occurrences = _decode_all_array(sampleset, self.qac_graph.qubit_array, bqm, ancilla=False)
         else:
             raise RuntimeError(f" ** Invalid decoding option {decoding}")
 
