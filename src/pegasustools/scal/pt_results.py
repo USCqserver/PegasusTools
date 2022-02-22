@@ -6,15 +6,19 @@ from . import tts
 class TamcPtResults:
     def __init__(self, file, num_sweeps=None):
         # quick read
-        with open(file) as f:
-            lines = []
-            for l in f:
-                if l.startswith("gs_states"):
-                    break
-                lines.append(l)
-            yaml_string = "\n".join(lines)
-            pt_icm_info = yaml.safe_load(yaml_string)
-        # timing in microseconds
+        try:
+            with open(file) as f:
+                lines = []
+                for l in f:
+                    if l.startswith("gs_states"):
+                        break
+                    lines.append(l)
+                yaml_string = "\n".join(lines)
+                pt_icm_info = yaml.safe_load(yaml_string)
+        except Exception as e:
+            print(f"Failed to parse {file}")
+            raise e
+            # timing in microseconds
         self.timing = pt_icm_info['timing']
         self.steps = np.asarray(pt_icm_info['gs_time_steps'])
         self.energies = np.asarray(pt_icm_info['gs_energies'])
@@ -100,6 +104,7 @@ def read_nts_dist(file_fmt, num_reps, gs_energy, reps=0.0, eps=1.0e-4):
         opt_sweeps, opt_tts, opt_tts_idx = optimal_tts_dist(avg_t, nts_arr, nsweeps)
 
         reps_results['opt_sweeps'].append(opt_sweeps)
+        reps_results['avg_t'].append(avg_t)
         reps_results['opt_tts'].append(opt_tts)
         reps_results['opt_tts_idx'].append(opt_tts_idx)
         reps_results['cross_idxs']. append(np.asarray(cross_idx_list))
