@@ -63,6 +63,32 @@ def frustrated_loops(g: nx.Graph, m, j=-1.0, jf=1.0, min_loop=6, max_iters=10000
     return g2, loops
 
 
+def wishart_planted(n, m, rng: Generator=None):
+    """
+    Generate a Wishart planted instance on a complete K_n graph
+    as described in [Hamze et. al. Phys. Rev. E 101, 052102 (2020)]
+    :param n:
+    :param m:
+    :param rng:
+    :return:
+    """
+    sqrt_sigma = np.sqrt(n / (n-1.0)) * (np.eye(n) - np.ones((n, n))/n)
+
+    z = rng.normal(0.0, 1.0, (n, m))
+    w_mat = sqrt_sigma @ z  # [n, m] W matrix
+    j_mat = - (1.0 / n) * (w_mat @ (w_mat.T))
+    tr_j = np.trace(j_mat)
+    for i in range(n):
+        j_mat[i, i] = 0.0
+
+    gs_energy = 0.5 * tr_j
+    g = nx.complete_graph(n)
+    for u, v in g.edges:
+        g.edges[u, v]['weight'] = j_mat[u, v]
+
+    return g, gs_energy
+
+
 def random_couplings(g: nx.Graph, rng: Generator=None):
     num_edges = g.number_of_edges()
     if rng is None:
@@ -122,6 +148,52 @@ def dilute_nodes(g: nx.Graph, p, rng: Generator=None):
     return g
 
 
+def generate_wishart_planted(args):
+    m = int(args.clause_density * n)
+    print(f" * instance size = {n}")
+    print(f" * clause density = {args.clause_density}")
+    print(f" * num clauses = {m}")
+    r = args.min_clause_size
+    for i in range(args.rejection_iters):
+        g2, loops = frustrated_loops(g, m, min_loop=r, rng=rng)
+        if all(abs(j) <= args.range for (u, v, j) in g2.edges.data("weight")):
+            print(f" * range {args.range} satisfied in {i + 1} iterations")
+            cc = list(c for c in nx.connected_components(g2) if len(c) > 1)
+            cc.sort(key=lambda c: len(c), reverse=True)
+            ccn = [len(c) for c in cc]
+            print(f" * Connected component sizes: {ccn}")
+            if len(ccn) > 1:
+                print(" ** Rejected multiple connected components")
+                continue
+            else:
+                e0 = 0.0
+                for l in loops:
+                    nl = len(l)
+                    e0 += -nl + 2.0
+                print(f" ** Found {len(loops)} loop instance: e_gs = {e0}")
+                break
+    else:
+        raise RuntimeError(f"Failed to satisfy range ({args.range}) within {args.rejection_iters} iterations")
+    loop_lengths = [len(l) for l in loops]
+    bins = np.concatenate([np.arange(r, 4 * r) - 0.5, [1000.0]])
+    hist, _ = np.histogram(loop_lengths, bins)
+    print(bins)
+    print(hist)
+
+    bqm = ising_graph_to_bqm(g2)
+    numvar = bqm.num_variables
+    e = bqm.energy((np.ones(numvar, dtype=int), bqm.variables))
+    print(f"* GS Energy: {e}")
+    save_ising_instance_graph(g2, args.dest)
+    if args.instance_info is not None:
+        props = {"gs_energy": float(e),
+                 "num_loops": len(loops),
+                 "size": numvar
+                 }
+        with open(args.instance_info, 'w') as f:
+            yaml.safe_dump(props, f, default_flow_style=False)
+    return
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate a problem instance over an arbitrary graph"
@@ -149,8 +221,10 @@ def main():
     #parser.add_argument("--non-degenerate", action='store_true',
     #                    help="Force the planted ground state of a single clause to be non-degenerate.\n"
     #                         "\tfl: The AFM coupling strength is reduced to 0.75")
-    parser.add_argument("topology", type=str, help="Text file specifying graph topology")
-    parser.add_argument("instance_class", choices=["fl", "r3", "bsg"],
+    parser.add_argument("topology", type=str, help="Text file specifying graph topology."
+                                                   " Ignored if the instance class generates its own graph.")
+    parser.add_argument("instance_class",
+                        choices=["fl", "r3", "bsg", "wis"],
                         help="Instance class to generate")
     parser.add_argument("dest", type=str,
                         help="Save file for the instance specification in Ising adjacency format")
@@ -214,6 +288,7 @@ def main():
             with open(args.instance_info, 'w') as f:
                 yaml.safe_dump(props, f, default_flow_style=False)
         return
+
     # Generic random instances (no gs energy is known)
     if args.instance_class == "r3":
         g2 = random_couplings(g, rng)
