@@ -70,14 +70,27 @@ def main():
     label_nodes = {i: str(n) for i, n in enumerate(sorted_nodes)}
     mapping_dict = {"nodes_to_labels": str_node_labels, "labels_to_nodes": label_nodes}
     #
-    n2l, l2n = read_mapping(args.labels)
+    #
     # Relabel the graph to integer labels
     g2 = nx.relabel_nodes(g, node_labels, copy=True)
     # Set the original logical QAC node string '(t,x,z,u)' as an attribute
     nx.set_node_attributes(g2, label_nodes, "qubit")
     # Save the integer label adjacency list in plain text
     save_graph_adjacency(g2, args.dest)
+
+    if args.percolation is not None:
+        save_ising_instance_graph(g2, args.percolation)
+
+    if args.graphml is not None:
+        # stringify qubit locations, then save graphml
+        #for n in g2.nodes:
+        #    g2.nodes[n]["qubit"] = str(g2.nodes[n]["qubit"])
+        nx.readwrite.write_graphml(g2, args.graphml)
+    with open(args.labels, 'w') as f:
+        json.dump(mapping_dict, f)
+
     if args.plot is not None:
+        n2l, l2n = read_mapping(args.labels)
         fig, ax = plt.subplots(figsize=(12, 12))
         if args.plot_instance is not None:
             instance = read_ising_adjacency_graph(args.plot_instance)
@@ -91,21 +104,10 @@ def main():
                             cols.append(instance.edges[u, v]['weight'])
                             edgelist.append((l2n[u], l2n[v]))
             qac_graph.draw(edge_cmap=plt.cm.bwr, node_size=25, alpha=0.6, width=2.0,
-                           edge_color=cols, edgelist=edgelist, edge_vmin=-1.0, edge_vmax=1.0)
+                           edge_color=cols, edgelist=edgelist, edge_vmin=-3.0, edge_vmax=3.0)
         else:
             qac_graph.draw(node_size=75,)
         plt.savefig(args.plot)
-    if args.percolation is not None:
-        save_ising_instance_graph(g2, args.percolation)
-
-    if args.graphml is not None:
-        # stringify qubit locations, then save graphml
-        #for n in g2.nodes:
-        #    g2.nodes[n]["qubit"] = str(g2.nodes[n]["qubit"])
-        nx.readwrite.write_graphml(g2, args.graphml)
-    with open(args.labels, 'w') as f:
-        json.dump(mapping_dict, f)
-
 
 if __name__ == "__main__":
     main()
