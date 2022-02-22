@@ -2,7 +2,7 @@ import argparse
 import dimod
 import numpy as np
 import pandas as pd
-
+import gc
 
 def add_general_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-v", "--verbose", action='store_true')
@@ -73,13 +73,16 @@ def save_cell_results(raw_results: dimod.SampleSet, sched, args, additional_colu
     np.savetxt(sched_path, sched_arr, delimiter=',')
 
 
-def run_sampler(sampler, bqm, args, aggregate=True, **sampler_kwargs):
+def run_sampler(sampler, bqm, args, aggregate=True, run_gc=False, **sampler_kwargs):
     print("Sampling...")
     results_list = []
     # Collect the futures for each repetition
     for i in range(args.reps):
         results = sampler.sample(bqm, **sampler_kwargs)
         results_list.append(results)
+        # run_gc here if sample is not asynchronous
+        if run_gc:
+            gc.collect()
 
     # Aggregate the results as they become available
     aggr_results = []
@@ -97,6 +100,10 @@ def run_sampler(sampler, bqm, args, aggregate=True, **sampler_kwargs):
             aggr_results.append(res.aggregate())
         else:
             aggr_results.append(res)
+
+        # run_gc here for fully asynchronous samples
+        if run_gc:
+            gc.collect()
 
     return aggr_results
 
