@@ -55,7 +55,7 @@ def main(args=None):
     qac_sampler = PegasusQACEmbedding(16, dw_sampler)
     qac_sampler.validate_structure(bqm)
     sampler = dimod.ScaleComposite(qac_sampler)
-    aggr_results = run_sampler(sampler, bqm, args, aggregate=False, scalar=1.0/args.scale_j, **qac_args, **dw_kwargs, **sched_kwags)
+    aggr_results = run_sampler(sampler, bqm, args, aggregate=False, run_gc=True, scalar=1.0/args.scale_j, **qac_args, **dw_kwargs, **sched_kwags)
     all_results: dimod.SampleSet = dimod.concatenate(aggr_results)
     if mapping_n2l is not None:
         all_results.relabel_variables(mapping_n2l)
