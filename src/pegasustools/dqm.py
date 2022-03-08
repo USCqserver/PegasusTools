@@ -89,7 +89,7 @@ class DQMasCQM(ComposedSampler):
         cqm, var_mapping = dqm_to_cqm(dqm)
         bqm, _inverter = cqm_to_bqm(cqm, lagrange_multiplier=constraint_penalty)
         # inverter is not necessary here
-        sampleset: dimod.SampleSet = self.child.sample(bqm)
+        sampleset: dimod.SampleSet = self.child.sample(bqm, **parameters)
         #cqm.check_feasible(sampleset)
         dqm_sampleset = self._decode_to_dqm(sampleset, var_mapping, dqm)
         return dqm_sampleset
@@ -99,7 +99,8 @@ class DQMasCQM(ComposedSampler):
                         dqm: DiscreteQuadraticModel):
 
         dqm_samp = np.zeros([len(sampleset), dqm.num_variables()], dtype=np.int32)  # dtype should be cyDiscreteQuadraticModel.case_dtype
-
+        n_cold = np.zeros([len(sampleset)], dtype=np.int32)
+        n_hot = np.zeros([len(sampleset)], dtype=np.int32)
         for i, v in enumerate(dqm.variables):
             l = []
             var_cases = var_mapping[v]
@@ -108,22 +109,29 @@ class DQMasCQM(ComposedSampler):
                 l.append(sampleset.record.sample[:, sampleset.variables.index(bv)])
             # [N, C] array, where N is the number of samples and C is the number of cases
             l = np.stack(l, axis=1)
-
-            for dqm_row, row in zip(dqm_samp, l):
-                isone = row > 0
-                n = np.sum(isone)
-                nz = np.argwhere(row)
-                if n > 1:
-                    m = nz.shape[0]
-                    mi = np.random.randint(0, m)
-                    dqm_row[i] = nz[mi, 0]
-                else:
-                    dqm_row[i] = nz[0, 0]
+            l_ones = l > 0
+            l_sums = np.sum(l_ones, axis=1)
+            # assume the most common case is successful one-hot decoding
+            dqm_samp[:, i] = np.sum(l_ones * np.arange(0, c, dtype=np.int32)[np.newaxis, :], axis=1)
+            # handle hot errors
+            hot_samps = np.argwhere(l_sums > 1)
+            for j in hot_samps[:, 0]:
+                mi = l_sums[j]  # number of 1 cases
+                ri = np.random.randint(0, mi)  # randomly select a case
+                nz = np.argwhere(l_ones[j] > 0)
+                r = nz[ri, 0]
+                dqm_samp[j, i] = r
+                n_hot[j] += 1
+            # handle cold errors by randomly selecting any case
+            cold_samps = np.argwhere(l_sums < 1)
+            for j in cold_samps[:, 0]:
+                dqm_samp[j, i] = np.random.randint(0, c)
+                n_cold[j] += 1
 
         energies = dqm.energies((dqm_samp, dqm.variables))
         num_occurrences = sampleset.data_vectors['num_occurrences']
         return dimod.SampleSet.from_samples((dqm_samp, dqm.variables), 'DISCRETE', energy=energies, info=sampleset.info,
-                                            num_occurrences=num_occurrences)
+                                            num_occurrences=num_occurrences, n_hot=n_hot, n_cold=n_cold)
 
     def sample_ising(self, h, J, **parameters):
         raise NotImplemented("DQmasCBQM expects a DQM to sample")
@@ -144,6 +152,8 @@ def test_dqm_as_cqm():
     # shamelessly based on github.com/dwave-examples/graph-coloring
     import neal
     from dimod import ExactDQMSolver
+    from dwave.preprocessing import ScaleComposite
+    from dwave.system import DWaveSampler, EmbeddingComposite
     import networkx as nx
     import matplotlib
     import matplotlib.pyplot as plt
@@ -153,10 +163,10 @@ def test_dqm_as_cqm():
     colors = range(num_colors)
 
     # Make networkx graph
-    G = nx.powerlaw_cluster_graph(8, 3, 0.4)
+    G = nx.powerlaw_cluster_graph(9, 3, 0.4)
     pos = nx.spring_layout(G)
     nx.draw(G, pos=pos, node_size=50, edgecolors='k', cmap='hsv')
-    plt.savefig("dqm_test_original_graph.png")
+    #plt.savefig("dqm_test_original_graph.png")
     plt.clf()
 
     # initial value of Lagrange parameter
@@ -178,18 +188,23 @@ def test_dqm_as_cqm():
         dqm.set_quadratic(u, v, {(c, c): lagrange for c in colors})
 
     sa_sampler = neal.SimulatedAnnealingSampler()
+    dw_sampler = EmbeddingComposite(DWaveSampler())
     exact_solver = ExactDQMSolver()
     sampler = DQMasCQM(sa_sampler)
-    sa_sampleset = sampler.sample(dqm, constraint_penalty=10.0)
+    qa_sampler = DQMasCQM(dw_sampler)
+    sa_sampleset = sampler.sample(dqm, constraint_penalty=num_colors, num_reads=5000, sweeps=1000, beta_range=[0.005, 1.0])
+    qa_sampleset = qa_sampler.sample(dqm, constraint_penalty=num_colors, num_reads=1000, annealing_time=200.0)
     exact_sampleset = exact_solver.sample_dqm(dqm)
     print("Done")
 
-    for nm, sampleset in zip(["sa", "exact"], [sa_sampleset, exact_sampleset]):
+    for nm, sampleset in zip(["sa", "qa", "exact"], [sa_sampleset, qa_sampleset, exact_sampleset]):
         # get the first solution, and print it
-        sample = exact_sampleset.first.sample
+        sample = sampleset.first.sample
+        min_energy = sampleset.first.energy
+
         node_colors = [sample[i] for i in G.nodes()]
-        nx.draw(G, pos=pos, node_color=node_colors, node_size=50, edgecolors='k', cmap='Accent')
-        plt.savefig(f'graph_result_{nm}.png')
+        #nx.draw(G, pos=pos, node_color=node_colors, node_size=50, edgecolors='k', cmap='Accent')
+        #plt.savefig(f'graph_result_{nm}.png')
 
         # check that colors are different
         valid = True
@@ -202,3 +217,9 @@ def test_dqm_as_cqm():
 
         colors_used = max(sample.values()) + 1
         print("\t ** Colors required:", colors_used)
+        print("\t ** Energy: ", min_energy)
+
+        if nm in ["sa", "qa"]:
+            ngs = np.sum(sampleset.record["energy"] <= min_energy+1.0e-3)
+            pgs = ngs / len(sampleset)
+            print("\t ** P_gs: ", pgs)
