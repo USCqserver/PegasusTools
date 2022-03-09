@@ -12,8 +12,8 @@ import os
 import dimod
 import numpy as np
 from typing import Union
-from dimod import ComposedSampler, BinaryQuadraticModel, Sampler, StructureComposite, Structured, \
-    bqm_structured, AdjArrayBQM, AdjVectorBQM
+from dimod import BinaryQuadraticModel, StructureComposite, Structured, \
+    bqm_structured, AdjVectorBQM
 #from .pgq import collect_complete_unit_cells
 #import dwave_networkx as dnx
 #import networkx as nx
