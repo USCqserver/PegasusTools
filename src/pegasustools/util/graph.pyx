@@ -52,3 +52,45 @@ def random_walk_loop(init_node, graph: nx.Graph, max_iters=1000, rng: Generator=
 
     return rand_walk
 
+def random_walk_chain(init_node, n, graph: nx.Graph, rng: Generator = None):
+    """
+    Creates a linear non-intersecting random walk
+
+    :param n:
+    :param init_node:
+    :param graph:
+    :param max_iters:
+    :param rng:
+    :return:
+    """
+    if rng is None:
+        rng = default_rng()
+    current_node = init_node
+    next_node = None
+    g = graph.copy()
+    neighbors = set(g.neighbors(current_node))
+    if len(neighbors) < 2:
+        raise RuntimeError("random_walk_loop: Not enough initial neighbors")
+
+    rand_walk = []
+    for t in range(n):
+        rand_walk.append(current_node)
+        all_neighbors_list = list(neighbors)
+        # restrict neighbors only to those not already in the random walk
+        neighbors_list = [n for n in all_neighbors_list if "rw_next" not in g.nodes[n]]
+        num_neighbors = len(neighbors_list)
+        if num_neighbors == 0:
+            print(f"random_walk_chain: Reached dead end; No neighbors available in node {current_node}")
+            return None
+        #select the next node
+        next_idx = rng.integers(0, num_neighbors)
+        next_node = neighbors_list[next_idx]
+        g.nodes[current_node]["rw_next"] = (t, next_node)
+        # gather the next node's set of neighbors, excluding the current node
+        neighbors = set(g.neighbors(next_node))
+        neighbors.remove(current_node)
+        current_node = next_node
+
+    return rand_walk
+
+

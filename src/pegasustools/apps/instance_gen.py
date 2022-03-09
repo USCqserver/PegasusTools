@@ -5,7 +5,7 @@ import numpy as np
 import json
 import yaml
 from numpy.random import default_rng, Generator
-from pegasustools.util.graph import random_walk_loop
+from pegasustools.util.graph import random_walk_loop, random_walk_chain
 from pegasustools.util.adj import save_ising_instance_graph, ising_graph_to_bqm
 
 
@@ -61,6 +61,49 @@ def frustrated_loops(g: nx.Graph, m, j=-1.0, jf=1.0, min_loop=6, max_iters=10000
             zero_edges.append((u, v))
     g2.remove_edges_from(zero_edges)
     return g2, loops
+
+
+def random_1d_chain(g: nx.Graph, n, j=-1.0,  max_iters=10000,  rng: Generator=None):
+    """
+    Embed a 1D chain on a logical graph using a random walk
+    :param g: Logical graph
+    :param n: Chain length
+    :param j: Chain Strength. Defaults to 1.0
+    :param max_iters:
+    :param rng:
+    :return:
+    """
+    if rng is None:
+        rng = default_rng()
+    g2 = nx.Graph()
+    g2.add_nodes_from(g.nodes)
+    g2.add_edges_from(g.edges, weight=0.0)
+
+    if np.isscalar(j):
+        j_array = np.full(n, j)
+    else:
+        j_array = j
+
+    num_nodes = g.number_of_nodes()
+    init_node = rng.integers(0, num_nodes)
+
+    for i in range(max_iters):
+        rand_walk = random_walk_chain(init_node, n, g2)
+        if rand_walk is not None:
+            break
+    else:
+        raise RuntimeError(f"random_1d_chain failed to generate instance within {max_iters} iterations")
+    # Add to the weights of the entire loop
+    for u, v, ji in zip(rand_walk[:-1], rand_walk[1:], j_array):
+        g2.edges[u, v]["weight"] += ji
+    # purge zero-edges
+    zero_edges = []
+    for u, v in g2.edges:
+        if g2.edges[u, v]["weight"] == 0.0:
+            zero_edges.append((u, v))
+    g2.remove_edges_from(zero_edges)
+
+    return g2
 
 
 def wishart_planted(n, m, rng: Generator=None):
@@ -148,7 +191,8 @@ def dilute_nodes(g: nx.Graph, p, rng: Generator=None):
     return g
 
 
-def generate_wishart_planted(args):
+def generate_wishart_planted(g: nx.Graph, args):
+
     m = int(args.clause_density * n)
     print(f" * instance size = {n}")
     print(f" * clause density = {args.clause_density}")
@@ -218,13 +262,17 @@ def main():
                         help="A manual seed for the RNG")
     parser.add_argument("-n", type=int, default=None,
                         help="Any integer index. Used in addition to the manual RNG seed if specified.")
+    parser.add_argument("--coupling", type=float, default=None,
+                        help="Coupling strength parameter")
+    parser.add_argument("--length", type=int, default=None,
+                        help="Length parameter for 1D instances")
     #parser.add_argument("--non-degenerate", action='store_true',
     #                    help="Force the planted ground state of a single clause to be non-degenerate.\n"
     #                         "\tfl: The AFM coupling strength is reduced to 0.75")
     parser.add_argument("topology", type=str, help="Text file specifying graph topology."
                                                    " Ignored if the instance class generates its own graph.")
     parser.add_argument("instance_class",
-                        choices=["fl", "r3", "bsg", "wis"],
+                        choices=["fl", "r3", "bsg", "wis", "r1d"],
                         help="Instance class to generate")
     parser.add_argument("dest", type=str,
                         help="Save file for the instance specification in Ising adjacency format")
@@ -288,6 +336,26 @@ def main():
             with open(args.instance_info, 'w') as f:
                 yaml.safe_dump(props, f, default_flow_style=False)
         return
+    if args.instance_class == "r1d":
+        # generate FM chains by default
+        if args.coupling is not None:
+            j = args.coupling
+        else:
+            j = -1.0
+        if args.length is None:
+            raise ValueError(f"Argument --length is required for instance class {args.instance_class}")
+        n = args.length
+        g2 = random_1d_chain(g, n, j, rng=rng)
+        # simple ground state energy for 1D chain
+        e = (n-1)*np.abs(j)
+        if args.instance_info is not None:
+            props = {"gs_energy": float(e),
+                     "size": n
+                     }
+            with open(args.instance_info, 'w') as f:
+                yaml.safe_dump(props, f, default_flow_style=False)
+        save_ising_instance_graph(g2, args.dest)
+        return
 
     # Generic random instances (no gs energy is known)
     if args.instance_class == "r3":
@@ -307,24 +375,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-#
-# bqm = AdjVectorBQM(lin, qua, dimod.SPIN)
-#
-# tflist = [1.0, 5.0, 25.0]
-# samples_qac = [
-#     qac_sampler.sample(bqm, encoding='qac', qac_penalty_strength=0.3, qac_problem_scale=1.0, num_reads=20,
-#                        auto_scale=False, annealing_time=tf)
-#     for tf in tflist
-# ]
-# samples_c = [
-#     qac_sampler.sample(bqm, encoding='all', num_reads=20, auto_scale=False, annealing_time=tf)
-#     for tf in tflist
-# ]
-# print("QAC")
-# for tf, s in zip(tflist, samples_qac):
-#     print(f"tf = {tf}")
-#     print(s.truncate(10))
-# print("ALL")
-# for tf, s in zip(tflist, samples_c):
-#     print(f"tf = {tf}")
-#     print(s.truncate(10))
