@@ -132,6 +132,28 @@ def wishart_planted(n, m, rng: Generator=None):
     return g, gs_energy
 
 
+def random_spin_glass(g: nx.Graph, coupling_set, rng: Generator):
+    coupling_set = np.asarray(coupling_set)
+    k = len(coupling_set)
+    num_edges = g.number_of_edges()
+    rand_js = rng.choice(coupling_set, num_edges)
+    if rng is None:
+        rng = default_rng()
+    g2 = nx.Graph()
+    g2.add_nodes_from(g.nodes)
+    g2.add_edges_from(g.edges, weight=0.0)
+    rand_js = rand_js * (2 * rng.integers(0, 2, [num_edges]) - 1)
+    for i, (u, v) in enumerate(g2.edges):
+        g2.edges[u, v]['weight'] = rand_js[i]
+
+    return g2
+
+
+def sidon_28(g: nx.Graph, rng: Generator=None):
+    couplings = np.asarray([8, 13, 19, 28])
+    return random_spin_glass(g, couplings, rng)
+
+
 def random_couplings(g: nx.Graph, rng: Generator=None):
     num_edges = g.number_of_edges()
     if rng is None:
@@ -272,7 +294,7 @@ def main():
     parser.add_argument("topology", type=str, help="Text file specifying graph topology."
                                                    " Ignored if the instance class generates its own graph.")
     parser.add_argument("instance_class",
-                        choices=["fl", "r3", "bsg", "wis", "r1d"],
+                        choices=["fl", "r3", "bsg", "wis", "r1d", "s28"],
                         help="Instance class to generate")
     parser.add_argument("dest", type=str,
                         help="Save file for the instance specification in Ising adjacency format")
@@ -362,6 +384,8 @@ def main():
         g2 = random_couplings(g, rng)
     elif args.instance_class == "bsg":
         g2 = binomial_spin_glass(g, rng)
+    elif args.instance_class == "s28":
+        g2 = sidon_28(g, rng)
     else:
         raise RuntimeError(f"Instance Class {args.instance_class} is not known")
     # Apply dilution if requested
