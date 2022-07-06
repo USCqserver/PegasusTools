@@ -64,6 +64,17 @@ def embed_qac_graph(lin, qua, qac_map, penalty_strength,
     return qac_lin, qac_qua
 
 
+def purge_deg1(g: nx.Graph):
+    """ Iteratively purge trivial degree 1 nodes"""
+    deg1_nodes = [n for n in g.nodes if g.degree[n] < 2]
+    n_purge = 0
+    while len(deg1_nodes) > 0:
+        g.remove_nodes_from(deg1_nodes)
+        n_purge += len(deg1_nodes)
+        deg1_nodes = [n for n in g.nodes if g.degree[n] < 2]
+    return g, n_purge
+
+
 def _assert_penalty_edges(q, avail_edges):
     qp = q[3]
     for qi in q[:3]:
@@ -122,11 +133,51 @@ def try_embed_qac_graph(lin, qua, qac_map, avail_nodes, avail_edges, penalty_str
     return qac_lin, qac_qua
 
 
-class PegasusQACGraph:
+class AbstractQACGraph:
+    def __init__(self):
+        self.g = None
+        self.qubit_array = None
+        self.nodes = None
+        self.edges = None
+        #self.node_embeddings = None
+        #self.edge_embeddings = None
+
+    def purge_deg1(self):
+        """ Iteratively purge trivial degree 1 nodes"""
+        g, n_purge = purge_deg1(self.g)
+        self.g = g
+        self.nodes = set(self.g.nodes)
+        self.edges = set(self.g.edges)
+        print(f"Purged {n_purge} trivial nodes")
+
+    def draw(self, **draw_kwargs):
+        pos_list = {node: qac_nice2xy(*node, a=60.0) for node in self.nodes}
+        g = self.g
+        nx.draw_networkx(g, pos=pos_list, with_labels=False, font_size=12, **draw_kwargs)
+
+    def subtopol(self, l, purge_deg1=True):
+        sub_nodes = set([n for n in self.nodes if n[1] < l and n[2] < l])
+        g2 = self.g.copy()
+        g2.remove_nodes_from(n for n in self.g if n not in set(sub_nodes))
+        # g2: nx.Graph = nx.subgraph(self.g, nbunch=sub_nodes).copy()
+        sub_qubits = self.qubit_array[:, :l, :l]
+
+        sub_qac = self.__new__(self.__class__)
+        sub_qac.nodes = sub_nodes
+        sub_qac.edges = set(g2.edges)
+        sub_qac.g = g2
+        sub_qac.qubit_array = sub_qubits
+        if purge_deg1:
+            sub_qac.purge_deg1()
+
+        return sub_qac
+
+
+class PegasusQACGraph(AbstractQACGraph):
     def __init__(self, m, nodes_list, edge_list, strict=True, purge_deg1=True):
         """
          The PQAC graph is specified as follows:
-             Within each cell with vertical and horizontal registers (qv, qh), the penalty qubits are placed in
+             Within each cell with vertical (u=0) and horizontal (u=1) registers (qv, qh), the penalty qubits are placed in
              qv[0] and qh[0]
              The corresponding logical qubits are
                  qv[0]  -- qh[1:4]
@@ -141,7 +192,7 @@ class PegasusQACGraph:
          :param edge_list:
          :return:
          """
-
+        super(PegasusQACGraph, self).__init__()
         # Collect the penalty qubit indices
         # (t, x, z, u)
 
@@ -236,36 +287,6 @@ class PegasusQACGraph:
         if purge_deg1:
             self.purge_deg1()
 
-    def purge_deg1(self):
-        """ Iteratively purge trivial degree 1 nodes"""
-        deg1_nodes = [n for n in self.g.nodes if self.g.degree[n] < 2]
-        n_purge = 0
-        while len(deg1_nodes) > 0:
-            self.g.remove_nodes_from(deg1_nodes)
-            n_purge += len(deg1_nodes)
-            self.nodes = set(self.g.nodes)
-            self.edges = set(self.g.edges)
-            deg1_nodes = [n for n in self.g.nodes if self.g.degree[n] < 2]
-        print(f"Purged {n_purge} trivial nodes")
-
-    def draw(self, **draw_kwargs):
-        pos_list = {node: qac_nice2xy(*node, a=60.0) for node in self.nodes}
-        g = self.g
-        nx.draw_networkx(g, pos=pos_list, with_labels=False, font_size=12, **draw_kwargs)
-
-    def subtopol(self, l, purge_deg1=True):
-        sub_nodes = [n for n in self.nodes if n[1] < l and n[2] < l ]
-        g2: nx.Graph = nx.subgraph(self.g, nbunch=sub_nodes).copy()
-        sub_qubits = self.qubit_array[:, :l, :l]
-        sub_qac = self.__new__(self.__class__)
-        sub_qac.nodes = sub_nodes
-        sub_qac.edges = set(g2.edges)
-        sub_qac.g = g2
-        sub_qac.qubit_array = sub_qubits
-        if purge_deg1:
-            sub_qac.purge_deg1()
-
-        return sub_qac
 
 def _extract_all_samples(sampleset:  dimod.SampleSet, qac_map, bqm: BQM, ancilla=False):
     vars = sampleset.variables
@@ -336,24 +357,42 @@ def _decode_c_array(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
     return min_q_samps, min_energies
 
 
-class PegasusQACEmbedding(StructureComposite):
-    def __init__(self, m, child_sampler, cache=True):
-        cache_path = ".pegasus_qac_embedding.dat"
-        self._child_nodes = set(child_sampler.nodelist)
-        self._child_edges = set(child_sampler.edgelist)
+class AbstractQACEmbedding(StructureComposite):
+    def __init__(self, m, embedding_name, child_sampler, cache=True):
+        cache_path = f".{embedding_name}.dat"
+
+        child_nodes = set(child_sampler.nodelist)
+        child_edges = set(child_sampler.edgelist)
         if cache and os.path.isfile(cache_path):
             print(f"Loading from {cache_path}")
             with open(cache_path, 'rb') as f:
-                self.qac_graph = pickle.load(f)
+                qac_graph = pickle.load(f)
         else:
-            self.qac_graph = PegasusQACGraph(m, self._child_nodes, self._child_edges, strict=True)
+            qac_graph = self.initialize_qac_graph(m, child_nodes, child_edges)
             if cache:
                 print(f"Saving qac graph to {cache_path}")
                 with open(cache_path, 'wb') as f:
-                    pickle.dump(self.qac_graph, f)
-        logical_nodes = list(self.qac_graph.nodes)
-        logical_edges = list(self.qac_graph.edges)
+                    pickle.dump(qac_graph, f)
+        logical_nodes = list(qac_graph.nodes)
+        logical_edges = list(qac_graph.edges)
         super().__init__(child_sampler, logical_nodes, logical_edges)
+        self.m = m
+        self._child_nodes = child_nodes
+        self._child_edges = child_edges
+        self.qac_graph = qac_graph
+
+    @staticmethod
+    def initialize_qac_graph(m, nodes, edges) -> AbstractQACGraph:
+        raise NotImplemented
+
+
+class PegasusQACEmbedding(AbstractQACEmbedding):
+    def __init__(self, m, child_sampler, cache=True):
+        super(PegasusQACEmbedding, self).__init__(m, 'pegasus_qac_embedding', child_sampler, cache=cache)
+
+    @staticmethod
+    def initialize_qac_graph(m, nodes, edges) -> AbstractQACGraph:
+        return PegasusQACGraph(m, nodes, edges, strict=True)
 
     def validate_structure(self, bqm: BQM):
         bqm = bqm.change_vartype(dimod.SPIN, inplace=False)
@@ -361,6 +400,7 @@ class PegasusQACEmbedding(StructureComposite):
                                        self._child_nodes, self._child_edges,
                                        penalty_strength=0.1, problem_scale=1.0,
                                        strict=True)
+
     @bqm_structured
     def sample(self, bqm: BQM, qac_decoding='qac', qac_penalty_strength=0.1, qac_problem_scale=1.0, **parameters):
         """
