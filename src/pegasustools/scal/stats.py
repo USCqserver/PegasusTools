@@ -68,16 +68,23 @@ def boots_median(x, nboots=10):
     return np.mean(md, axis=-1), np.std(md, axis=-1)
 
 
-def reduce_mean(x):
+def reduce_mean(x, ignore_inf=False):
     # evaluate if all finite
     isfin = np.isfinite(x)
-    allfin = np.all(isfin, axis=-1)
-    x_mean = np.mean(x, axis=-1)
-    x_std = np.std(x, axis=-1)
-    x_mean = np.where(allfin, x_mean, np.inf)
-    x_std = np.where(allfin, x_std, 0.0)
+    if not ignore_inf:
+        allfin = np.all(isfin, axis=-1)
+        x_mean = np.mean(x, axis=-1)
+        x_std = np.std(x, axis=-1)
+        x_mean = np.where(allfin, x_mean, np.inf)
+        x_std = np.where(allfin, x_std, 0.0)
 
-    return x_mean, x_std
+        return x_mean, x_std
+    else:
+        x_mask = np.ma.array(x,mask=np.logical_not(isfin))
+        x_mean = np.ma.mean(x_mask, axis=-1)
+        x_std = np.ma.std(x_mask, axis=-1)
+        x_inf = np.sum(x_mask.mask, axis=-1)
+        return x_mean, x_std, x_inf
 
 
 def reduce_median(x):
