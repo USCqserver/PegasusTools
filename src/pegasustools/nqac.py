@@ -1,13 +1,18 @@
 import numpy as np
 import networkx as nx
+import dimod
+from dimod import bqm_structured
+from dimod import StructureComposite, Structured, bqm_structured, AdjVectorBQM
+from dimod import BQM
 from typing import Dict, List, Tuple, TypeVar, Set, Iterable
 from itertools import combinations, product
-from pegasustools.qac import purge_deg1, AbstractQACGraph
+from pegasustools.qac import purge_deg1, AbstractQACGraph, AbstractQACEmbedding
 from pegasustools.pqubit import collect_available_unit_cells, Pqubit
 from pegasustools.util.graph import random_walk_loop
-
+from pegasustools.embed import SquareEmbedding
 LQ = TypeVar('LQ')
 PQ = TypeVar('PQ')
+PJ = Tuple[PQ, PQ]
 
 
 def lookup_all_edges(node_list, edge_set):
@@ -45,11 +50,12 @@ def lookup_bipartite_edges(node_list1, node_list2, edge_set, cmp = lambda x,y: x
 
 def embed_logical_qubits(logical_qubits: Dict[LQ, Iterable[PQ]],
                          logical_couplings: Iterable[Tuple[LQ, LQ]],
-                         edge_set: Set[Tuple[PQ, PQ]],
+                         edge_set: Set[PJ],
                          accept_qubit_crit=lambda q, lc: len(lc) > 0,
                          accept_coupler_crit=lambda q1, q2, lc: len(lc) > 0,
                          strict=False
-                         ):
+                         ) -> Tuple[Dict[LQ, Iterable[PJ]],
+                                    Dict[Tuple[LQ, LQ], Iterable[PJ]]]:
     """
     Nodes must be represented by objects with an order (e.g. integers) and all edges (i, j)
     should be ordered as  i < j.
@@ -94,6 +100,59 @@ def embed_logical_qubits(logical_qubits: Dict[LQ, Iterable[PQ]],
     return lq_intra_couplers, lq_inter_couplers
 
 
+def try_embed_nqac_graph(lin, qua,  # qac_map,
+                        logical_qubits: Dict[LQ, Iterable[PQ]],
+                        lq_intra_couplers: Dict[LQ, Iterable[PJ]],
+                        lq_inter_couplers: Dict[Tuple[LQ, LQ], Iterable[PJ]],
+                        avail_nodes, avail_edges, penalty_strength,
+                        problem_scale=1.0, strict=True):
+    """
+    Linear and quadratic specifications should be Ising-type
+
+    :param lin:
+    :param qua:
+    :param qac_map: Maps variables to lists of four qubits
+    :param penalty_strength:
+    :param problem_scale:
+    :param strict:
+    :return:
+    """
+    qac_lin = {}
+    qac_qua = {}
+    # Create the penalty Hamiltonian for all available QAC qubits
+    for v in lin:
+        q_coupl = lq_intra_couplers[v]
+        for (qi, qj) in q_coupl:
+            e = (qi, qj) if qi < qj else (qj, qi)
+            if e not in avail_edges:
+                raise RuntimeError(f"Cannot place penalty coupling {e}")
+            qac_qua[e] = -penalty_strength
+    # Embed logical biases
+    for v, h in lin.items():
+        q = logical_qubits[v]
+        n = len(q)
+        scal = 1.0 / n
+        for qi in q:
+            if qi not in avail_nodes:
+                raise RuntimeError(f"Cannot place node {qi}")
+            qac_lin[qi] = problem_scale * scal * h
+    # Embed logical interactions
+    for (u, v), j in qua.items():
+        uv_coupls = lq_inter_couplers[(u, v)]
+        n = len(uv_coupls)
+        scal = 1.0 / n
+        for (qi, qj) in uv_coupls:
+            e = (qi, qj) if qi < qj else (qj, qi)
+            if e not in avail_edges:
+                if strict:
+                    print(f" ** Warning: cannot place physical edge ({qi}, {qj}) in logical edge ({u}, {v}) ")
+                    return None, None
+            else:
+                qac_qua[e] = problem_scale * scal * j
+
+    return qac_lin, qac_qua
+
+
 def k4_nqac_nice2xy(t, x, z, u, a=1.0, x0=0.0, y0=0.0):
     """
     Get plottable cartesian coordinates of the cluster coordinate
@@ -112,6 +171,33 @@ def k4_nqac_nice2xy(t, x, z, u, a=1.0, x0=0.0, y0=0.0):
     return x0 + a*x, y0 + a*y
 
 
+def _decode_all_samples(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
+    vars = sampleset.variables
+    n_samps = sampleset.record.sample.shape[0]
+    n_logical = bqm.num_variables
+    decoded_samples = np.zeros((n_samps, n_logical))
+    decoding_ties = np.zeros((n_samps, n_logical))
+    decoding_errs = np.zeros((n_samps, n_logical))
+
+    for i, v in enumerate(bqm.variables):
+        # logical qubit indices
+        q = qac_map[v]
+        idxs = np.asarray([vars.index[qi] for qi in q])
+        q_values = sampleset.record.sample[:, idxs]  # [nsamples, physical_qubits_i]
+        ql = np.sum(q_values, -1)
+        decoded_samples[:, i] = np.where(ql > 0,  1, -1)  # ising decoding
+        decoding_ties[:, i] = int(ql == 0)  # ties
+        decoding_errs[:, i] = int(np.abs(ql) != len(q))  # errors
+    # break ties randomly
+    ties = decoding_ties.astype(bool)
+    r = np.random.randint(0, 2, len(ties[0]))*2 - 1
+    decoded_samples[ties[0], ties[1]] = r
+
+    energies = bqm.energies((decoded_samples, bqm.variables))
+
+    return decoded_samples, energies, decoding_ties, decoding_errs
+
+
 class PegasusK4NQACGraph(AbstractQACGraph):
     def __init__(self, m, node_list, edge_list, strict=True, purge_deg1=True):
         """
@@ -121,6 +207,7 @@ class PegasusK4NQACGraph(AbstractQACGraph):
          :return:
          """
         super(PegasusK4NQACGraph, self).__init__()
+        node_set = set(node_list)
         edge_set = set(edge_list)
 
         qac_qubits = np.full((3, m - 1, m - 1, 2, 4), -1, dtype=int)
@@ -204,7 +291,10 @@ class PegasusK4NQACGraph(AbstractQACGraph):
                     qac_edges.add(((0, x, z+1, u), (2, x, z, 1)))
                     qac_edges.add(((0, x, z+1, 0), (1, x, z, u)))
                     qac_edges.add(((1, x, z, 1), (2, x, z+1, u)))
-
+        logical_qubit_qpu_map = {}
+        for k, v in logical_qubit_map.items():
+            avail_qubits = [q for q in v if q in node_set]
+            logical_qubit_qpu_map[k] = avail_qubits
         # Determine the physical couplers required to embed the logical graph
         # A subgraph of K4 with at least 3 nodes and 3 edges must be connected, so we accept with this criterion
         lq_intra_couplers, lq_inter_couplers = embed_logical_qubits(
@@ -234,6 +324,56 @@ class PegasusK4NQACGraph(AbstractQACGraph):
         pos_list = {node: k4_nqac_nice2xy(*node, a=60.0) for node in self.nodes}
         g = self.g
         nx.draw_networkx(g, pos=pos_list, with_labels=False, font_size=12, **draw_kwargs)
+
+
+class PegasusNQACEmbedding(AbstractQACEmbedding):
+    def __init__(self, m, child_sampler, nqac_graph: AbstractQACGraph):
+        super(PegasusNQACEmbedding, self).__init__(m, child_sampler, nqac_graph)
+
+    def validate_structure(self, bqm: BQM, penalty_strength=0.1):
+        bqm = bqm.change_vartype(dimod.SPIN, inplace=False)
+        lin, qua = try_embed_nqac_graph(bqm.linear, bqm.quadratic, self.qac_graph.nodes,
+                                        self.qac_graph.g.nodes.data('embedding'),
+                                        self.qac_graph.g.nodes.data('embedding'),
+                                        self._child_nodes, self._child_edges, penalty_strength)
+        return lin, qua
+
+    @bqm_structured
+    def sample(self, bqm: BQM,  qac_penalty_strength=0.1, qac_problem_scale=1.0, **parameters):
+        """
+
+        :param bqm:
+        :param qac_decoding: 'qac', 'c', or 'all'
+        :param qac_penalty_strength
+        :param qac_problem_scale
+        :param parameters:
+        :return:
+        """
+
+        bqm = bqm.change_vartype(dimod.SPIN, inplace=False)
+        lin, qua = try_embed_nqac_graph(bqm.linear, bqm.quadratic, self.qac_graph.nodes,
+                                        self.qac_graph.g.nodes.data('embedding'),
+                                        self.qac_graph.g.nodes.data('embedding'),
+                                        self._child_nodes, self._child_edges, qac_penalty_strength)
+        sub_bqm = AdjVectorBQM(lin, qua, bqm.offset, bqm.vartype)
+        # submit the problem
+        sampleset: dimod.SampleSet = self.child.sample(sub_bqm, **parameters)
+
+        return self._extract_qac_solutions(sampleset, bqm)
+
+    def _extract_qac_solutions(self, sampleset: dimod.SampleSet, bqm: BQM):
+        samples, energies, q_ties, q_errs = _decode_all_samples(sampleset, self.qac_graph.g.nodes.data('embedding'), bqm )
+
+        num_occurrences = sampleset.data_vectors['num_occurrences']
+        info = sampleset.info
+
+        vectors = {}
+        vectors["error_p"] = np.mean(q_errs, -1)
+        vectors["tie_p"] = np.mean(q_ties, -1)
+        sub_sampleset = dimod.SampleSet.from_samples((samples, bqm.variables), sampleset.vartype, energies,
+                                                     info=info, num_occurrences=num_occurrences, **vectors)
+
+        return sub_sampleset
 
 
 if __name__ == "__main__":

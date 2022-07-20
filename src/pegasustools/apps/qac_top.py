@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import json
 from pegasustools.qac import PegasusQACEmbedding, PegasusQACGraph
+from pegasustools.nqac import PegasusK4NQACGraph
 from pegasustools.util.adj import save_graph_adjacency, save_ising_instance_graph, read_ising_adjacency_graph, read_mapping
 
 from dwave.system import DWaveSampler
@@ -14,6 +15,7 @@ def main():
         description="Generate graph data of the native QAC topology"
     )
 
+    parser.add_argument("--qac-method", default="qac", choices=["qac", "k4"])
     parser.add_argument("-L", type=int, default=None, help="System size L. If none, uses all available QAC nodes")
     parser.add_argument("--labels", type=str, default="labels.json",
                         help="Save file for the integer label mapping of the QAC graph")
@@ -38,11 +40,14 @@ def main():
         dw_graph: nx.Graph = dnx.pegasus_graph(16)
         dw_nodes = set(dw_graph.nodes)
         dw_edges = set(dw_graph.edges)
-        qac_graph = PegasusQACGraph(16, dw_nodes, dw_edges)
     else:
         dw_sampler = DWaveSampler()
-        qac_sampler = PegasusQACEmbedding(16, dw_sampler)
-        qac_graph = qac_sampler.qac_graph
+        dw_nodes = set(dw_sampler.nodelist)
+        dw_edges = set(dw_sampler.edgelist)
+    if args.qac_method == "qac":
+        qac_graph = PegasusQACGraph(16, dw_nodes, dw_edges)
+    elif args.qac_method == "k4":
+        qac_graph = PegasusK4NQACGraph(16, dw_nodes, dw_edges)
 
     if args.L is not None:
         l = args.L
@@ -72,7 +77,11 @@ def main():
     #
     #
     # Relabel the graph to integer labels
-    g2 = nx.relabel_nodes(g, node_labels, copy=True)
+    g2 = nx.Graph()
+    g2.add_nodes_from(g)
+    g2.add_edges_from(g.edges)
+    g2 = nx.relabel_nodes(g2, node_labels)
+
     # Set the original logical QAC node string '(t,x,z,u)' as an attribute
     nx.set_node_attributes(g2, label_nodes, "qubit")
     # Save the integer label adjacency list in plain text
