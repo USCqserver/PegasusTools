@@ -2,13 +2,13 @@ import os
 import pickle
 import numpy as np
 from typing import Union
-from dimod.core.bqm import BQM
+from dimod import BQM
 import networkx as nx
 import dimod
 from dimod import StructureComposite, Structured, bqm_structured, AdjVectorBQM
 from pegasustools.pqubit import collect_available_unit_cells, Pqubit
-from pegasustools.util.qac import init_qac_penalty
 from pegasustools.util.graph import random_walk_loop
+
 
 def qac_nice2xy(t, x, z, u, a=1.0, x0=0.0, y0=0.0):
     """
@@ -142,6 +142,14 @@ class AbstractQACGraph:
         #self.node_embeddings = None
         #self.edge_embeddings = None
 
+    @property
+    def node_embeddings(self):
+        raise NotImplementedError
+
+    @property
+    def edge_embeddings(self):
+        raise NotImplementedError
+
     def purge_deg1(self):
         """ Iteratively purge trivial degree 1 nodes"""
         g, n_purge = purge_deg1(self.g)
@@ -171,6 +179,30 @@ class AbstractQACGraph:
             sub_qac.purge_deg1()
 
         return sub_qac
+
+    def save(self, cache_path):
+        print(f"Saving qac graph to {cache_path}")
+        with open(cache_path, 'wb') as f:
+            pickle.dump(self, f)
+
+    @classmethod
+    def load(cls, cache_path):
+        print(f"Loading from {cache_path}")
+        with open(cache_path, 'rb') as f:
+            _qac_graph: cls = pickle.load(f)
+        return _qac_graph
+
+    @classmethod
+    def load_or_initialize(cls, cache_path, *args, save=True, **kwargs):
+        if os.path.isfile(cache_path):
+            qac_graph = cls.load(cache_path)
+        else:
+            qac_graph = cls.__init__(*args, **kwargs)
+            if save:
+                print(f"Saving qac graph to {cache_path}")
+                with open(cache_path, 'wb') as f:
+                    pickle.dump(qac_graph, f)
+        return qac_graph
 
 
 class PegasusQACGraph(AbstractQACGraph):
@@ -358,21 +390,11 @@ def _decode_c_array(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
 
 
 class AbstractQACEmbedding(StructureComposite):
-    def __init__(self, m, embedding_name, child_sampler, cache=True):
-        cache_path = f".{embedding_name}.dat"
+    def __init__(self, m, child_sampler, qac_graph: AbstractQACGraph):
 
         child_nodes = set(child_sampler.nodelist)
         child_edges = set(child_sampler.edgelist)
-        if cache and os.path.isfile(cache_path):
-            print(f"Loading from {cache_path}")
-            with open(cache_path, 'rb') as f:
-                qac_graph = pickle.load(f)
-        else:
-            qac_graph = self.initialize_qac_graph(m, child_nodes, child_edges)
-            if cache:
-                print(f"Saving qac graph to {cache_path}")
-                with open(cache_path, 'wb') as f:
-                    pickle.dump(qac_graph, f)
+
         logical_nodes = list(qac_graph.nodes)
         logical_edges = list(qac_graph.edges)
         super().__init__(child_sampler, logical_nodes, logical_edges)
@@ -381,18 +403,17 @@ class AbstractQACEmbedding(StructureComposite):
         self._child_edges = child_edges
         self.qac_graph = qac_graph
 
-    @staticmethod
-    def initialize_qac_graph(m, nodes, edges) -> AbstractQACGraph:
-        raise NotImplemented
-
 
 class PegasusQACEmbedding(AbstractQACEmbedding):
     def __init__(self, m, child_sampler, cache=True):
-        super(PegasusQACEmbedding, self).__init__(m, 'pegasus_qac_embedding', child_sampler, cache=cache)
-
-    @staticmethod
-    def initialize_qac_graph(m, nodes, edges) -> AbstractQACGraph:
-        return PegasusQACGraph(m, nodes, edges, strict=True)
+        cache_path = f".pegasus_qac_embedding.dat"
+        child_nodes = set(child_sampler.nodelist)
+        child_edges = set(child_sampler.edgelist)
+        if cache and os.path.isfile(cache_path):
+            qac_graph = PegasusQACGraph.load(cache_path)
+        else:
+            qac_graph = PegasusQACGraph(m, child_nodes, child_edges, strict=True)
+        super(PegasusQACEmbedding, self).__init__(m, child_sampler, qac_graph)
 
     def validate_structure(self, bqm: BQM):
         bqm = bqm.change_vartype(dimod.SPIN, inplace=False)
