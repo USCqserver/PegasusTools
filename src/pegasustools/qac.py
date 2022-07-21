@@ -142,6 +142,10 @@ class AbstractQACGraph:
         #self.node_embeddings = None
         #self.edge_embeddings = None
 
+    @classmethod
+    def from_sampler(cls, m, sampler):
+        raise NotImplementedError
+
     @property
     def node_embeddings(self):
         raise NotImplementedError
@@ -319,6 +323,11 @@ class PegasusQACGraph(AbstractQACGraph):
         if purge_deg1:
             self.purge_deg1()
 
+    @classmethod
+    def from_sampler(cls, m, sampler, **kwargs):
+        nodes = set(sampler.nodelist)
+        edges = set(sampler.edgelist)
+        return cls(m, nodes, edges, **kwargs)
 
 def _extract_all_samples(sampleset:  dimod.SampleSet, qac_map, bqm: BQM, ancilla=False):
     vars = sampleset.variables
@@ -328,7 +337,7 @@ def _extract_all_samples(sampleset:  dimod.SampleSet, qac_map, bqm: BQM, ancilla
     for i, v in enumerate(bqm.variables):
         # logical qubit indices
         q = qac_map[v]
-        arr_idxs[i, :] = np.asarray([vars.index[qi] for qi in q[0:p]])
+        arr_idxs[i, :] = np.asarray([vars.index(qi) for qi in q[0:p]])
 
     q_values = sampleset.record.sample[:, arr_idxs]
     # [nsamples, nlogical, 3]

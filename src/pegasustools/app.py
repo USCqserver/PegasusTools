@@ -32,6 +32,7 @@ def add_cell_arguments(parser: argparse.ArgumentParser):
 
 
 def add_qac_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument("--qac-method", default="qac", choices=["qac", "k4"])
     parser.add_argument("--qac-penalty", type=float, default=0.1,
                         help="Penalty strength for QAC")
     parser.add_argument("--qac-scale", type=float, default=1.0,

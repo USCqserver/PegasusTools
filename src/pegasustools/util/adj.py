@@ -6,7 +6,7 @@ import json
 from ast import literal_eval
 
 
-def read_ising_adjacency(filename, max_k=1.0):
+def read_ising_adjacency(filename, max_k=1.0, sep=None, qubo=False):
     """
     Reads a three-column text file specifying the adjacency
     :param filename:
@@ -17,17 +17,25 @@ def read_ising_adjacency(filename, max_k=1.0):
 
     with open(filename) as f:
         for l, line in enumerate(f):
-            toks = line.split()
+            toks = line.split(sep=sep)
             if len(toks) != 3:
                 raise ValueError(f"Expected three tokens in line {l}")
             i, j, K = int(toks[0]), int(toks[1]), float(toks[2])
-            if i == j:
-                linear[i] = K / max_k
-            else:
+            if qubo:
                 (i2, j2) = (i, j) if i < j else (j, i)
                 quadratic[(i2, j2)] = K / max_k
+            else:
+                if i == j:
+                    linear[i] = K / max_k
+                else:
+                    (i2, j2) = (i, j) if i < j else (j, i)
+                    quadratic[(i2, j2)] = K / max_k
 
-    bqm = AdjVectorBQM.from_ising(linear, quadratic)
+    if qubo:
+        bqm = AdjVectorBQM.from_qubo(quadratic)
+        bqm = AdjVectorBQM.from_ising(*bqm.to_ising())
+    else:
+        bqm = AdjVectorBQM.from_ising(linear, quadratic)
     return bqm
 
 

@@ -5,9 +5,11 @@ import dimod
 
 from pegasustools.app import add_general_arguments, add_qac_arguments, run_sampler, save_cell_results
 from pegasustools.qac import PegasusQACEmbedding
+from pegasustools.nqac import PegasusNQACEmbedding, PegasusK4NQACGraph
 from pegasustools.util.adj import read_ising_adjacency, read_mapping
 from pegasustools.util.sched import interpret_schedule
-from dwave.system import DWaveSampler
+from dwave.preprocessing import ScaleComposite
+from dwave.system import DWaveSampler, EmbeddingComposite
 
 
 def main(args=None):
@@ -16,11 +18,18 @@ def main(args=None):
     add_qac_arguments(parser)
     parser.add_argument("--qac-mapping", type=str, default=None,
                         help="Topology mapping to QAC graph")
+    parser.add_argument("--qubo", action='store_true')
+    parser.add_argument("--minor-embed", action='store_true',
+                        help="Minor-embed the instance to the QAC graph")
+    parser.add_argument("--chain-strength", type=float, default=None,
+                        help="Chain strength for minor-embed")
+    parser.add_argument("--format", default=None)
     args = parser.parse_args(args)
 
     problem_file = args.problem
     tf = args.tf
-    bqm = read_ising_adjacency(problem_file, 1.0)
+    sep = ',' if args.format == 'csv' else None
+    bqm = read_ising_adjacency(problem_file, 1.0, sep, args.qubo)
     bqm = dimod.BQM(bqm)  # ensure dict-based BQM
     if args.qac_mapping is not None:
         n2l, l2n = read_mapping(args.qac_mapping)
@@ -52,16 +61,31 @@ def main(args=None):
     dw_kwargs = {"num_spin_reversal_transforms": 1 if args.rand_gauge else 0,
                  "num_reads": args.num_reads,
                  "auto_scale": False}
-    qac_sampler = PegasusQACEmbedding(16, dw_sampler)
-    qac_sampler.validate_structure(bqm)
-    sampler = dimod.ScaleComposite(qac_sampler)
-    aggr_results = run_sampler(sampler, bqm, args, aggregate=False, run_gc=True, scalar=1.0/args.scale_j, **qac_args, **dw_kwargs, **sched_kwags)
+    if args.qac_method == "qac":
+        qac_sampler = PegasusQACEmbedding(16, dw_sampler)
+    elif args.qac_method == "k4":
+        qac_graph = PegasusK4NQACGraph.from_sampler(16, dw_sampler)
+        qac_sampler = PegasusNQACEmbedding(16, dw_sampler, qac_graph)
+    else:
+        raise RuntimeError(f"Invalid method {args.qac_method}")
+
+    if args.minor_embed:
+        qac_sampler = EmbeddingComposite(qac_sampler)
+        emb_kwargs = {
+            'chain_strength': args.chain_strength
+        }
+    else:
+        qac_sampler.validate_structure(bqm)
+        emb_kwargs = {}
+    sampler = ScaleComposite(qac_sampler)
+    aggr_results = run_sampler(sampler, bqm, args, aggregate=False, run_gc=True, scalar=1.0/args.scale_j,
+                               **emb_kwargs, **qac_args, **dw_kwargs, **sched_kwags)
     all_results: dimod.SampleSet = dimod.concatenate(aggr_results)
     if mapping_n2l is not None:
         all_results.relabel_variables(mapping_n2l)
     lo = all_results.lowest()
     lo_df: pd.DataFrame = lo.to_pandas_dataframe()
-    if args.qac_mode == "qac":
+    if args.qac_method == "qac" and args.qac_mode == "qac":
         print(lo_df.loc[:, ['energy', 'error_p', 'rep', 'num_occurrences']])
     else:
         print(lo_df.loc[:, ['energy', 'rep', 'num_occurrences']])

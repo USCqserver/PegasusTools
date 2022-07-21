@@ -48,6 +48,8 @@ def main():
         qac_graph = PegasusQACGraph(16, dw_nodes, dw_edges)
     elif args.qac_method == "k4":
         qac_graph = PegasusK4NQACGraph(16, dw_nodes, dw_edges)
+    else:
+        raise RuntimeError(f"Invalid method {args.qac_method}")
 
     if args.L is not None:
         l = args.L

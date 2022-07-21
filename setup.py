@@ -37,6 +37,7 @@ setup(
         "numpy",
         "scipy",
         "pandas",
+        "tables",
         "networkx",
         "dwave_networkx",
         "dwave_system",
