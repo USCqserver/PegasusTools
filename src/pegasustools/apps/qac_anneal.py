@@ -18,12 +18,6 @@ def main(args=None):
     add_qac_arguments(parser)
     parser.add_argument("--qac-mapping", type=str, default=None,
                         help="Topology mapping to QAC graph")
-    parser.add_argument("--qubo", action='store_true')
-    parser.add_argument("--minor-embed", action='store_true',
-                        help="Minor-embed the instance to the QAC graph")
-    parser.add_argument("--chain-strength", type=float, default=None,
-                        help="Chain strength for minor-embed")
-    parser.add_argument("--format", default=None)
     args = parser.parse_args(args)
 
     problem_file = args.problem

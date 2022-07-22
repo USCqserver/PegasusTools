@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import gc
 
+
 def add_general_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("-v", "--verbose", action='store_true')
-    parser.add_argument("--targets", nargs='+', type=int, help="The list of target logical states to keep track of.")
     parser.add_argument("--tf", type=float, help="The anneal time for a simple annealing schedule.", default=20.0)
     parser.add_argument("--schedule", nargs='+', help="Anneal schedule specification ")
     parser.add_argument("-n", "--num-reads", type=int, default=64,
@@ -17,12 +17,21 @@ def add_general_arguments(parser: argparse.ArgumentParser):
                         help="Use a random gauge (spin reversal transformation) every repetition")
     parser.add_argument("--scale-j", type=float, default=1.0,
                         help="Rescale all biases and couplings as J / scale_J")
+    parser.add_argument("--qubo", action='store_true')
+    parser.add_argument("--minor-embed", action='store_true',
+                        help="Minor-embed the instance to the QAC graph")
+    parser.add_argument("--format", default="txt",
+                        help="Input format for problem file. Defaults to 'txt' (whitespace delimited text)")
+    parser.add_argument("--chain-strength", type=float, default=None,
+                        help="Chain strength for minor-embed")
     parser.add_argument("problem",
                         help="A cell problem, specified in a text file with three columns with the adjacency list")
     parser.add_argument("output", help="Prefix for output data")
 
 
 def add_cell_arguments(parser: argparse.ArgumentParser):
+    parser.add_argument("--targets", nargs='+', type=int,
+                   help="The list of target logical states to keep track of.")
     parser.add_argument("--rev-init", type=int,
                         help="Initial state for reverse annealing")
     parser.add_argument("--cell-p", type=float, default=1.0,
