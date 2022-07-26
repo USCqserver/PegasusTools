@@ -351,7 +351,7 @@ def _decode_qac_array(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
     q_sum = np.sum(q_values, axis=2)
     # Majority vote reduction
     q_decode = np.where(q_sum > 0, 1, -1)
-    q_err = np.mean(np.where(np.abs(q_sum) == 3, 0.0, 1.0), axis=1)
+    q_err = np.where(np.abs(q_sum) == 3, 0.0, 1.0)
 
     energies = bqm.energies((q_decode, bqm.variables))
 
@@ -472,7 +472,8 @@ class PegasusQACEmbedding(AbstractQACEmbedding):
 
         vectors = {}
         if q_err is not None:
-            vectors["error_p"] = q_err
+            vectors['errors'] = q_err
+            vectors["error_p"] = np.mean(q_err, axis=1)
         sub_sampleset = dimod.SampleSet.from_samples((samples, bqm.variables), sampleset.vartype, energies,
                                                      info=info, num_occurrences=num_occurrences, **vectors)
 
