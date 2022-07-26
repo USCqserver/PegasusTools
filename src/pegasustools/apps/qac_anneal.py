@@ -4,7 +4,8 @@ import networkx as nx
 import pandas as pd
 import yaml
 import dimod
-from itertools import combinations
+from dwave_networkx.drawing.distinguishable_colors import distinguishable_color_map
+from itertools import combinations, product
 from dimod.variables import Variables
 from numpy.lib import recfunctions as rfn
 
@@ -14,11 +15,11 @@ from pegasustools.nqac import PegasusNQACEmbedding, PegasusK4NQACGraph
 from pegasustools.util.adj import read_ising_adjacency, read_mapping
 from pegasustools.util.sched import interpret_schedule
 from dwave.preprocessing import ScaleComposite
-from dwave.system import DWaveSampler, EmbeddingComposite
+from dwave.system import DWaveSampler, EmbeddingComposite, LazyFixedEmbeddingComposite
 from dwave.embedding.chain_breaks import weighted_random
 
 
-def draw_qac(qac_graph: PegasusK4NQACGraph, results: dimod.SampleSet, embedding, i=0):
+def draw_qac(output_name, qac_graph: PegasusK4NQACGraph, results: dimod.SampleSet, bqm: dimod.BQM, embedding):
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(12, 12))
 
@@ -35,25 +36,43 @@ def draw_qac(qac_graph: PegasusK4NQACGraph, results: dimod.SampleSet, embedding,
         for vi in embv:
             nodelist.append(vi)
             nodecols.append(mean_err_p[emb_variables.index(vi)])
-    g2 = nx.subgraph(qac_graph.g, nodelist)
-    edgelist = list(nx.subgraph(qac_graph.g, nodelist).edges())
+    edgelist = []
+    for e in bqm.quadratic.keys():
+        u, v = e
+        embu = embedding[u]
+        embv = embedding[v]
+        coupls = []
+        for vi, vj in product(embu, embv):
+            if (vi, vj) in qac_graph.g.edges:
+                coupls.append((vi, vj))
+        edgelist += coupls
+        if len(coupls) == 0:
+            raise ValueError
+
+    # edgelist = list(nx.subgraph(qac_graph.g, nodelist).edges())
     qac_graph.draw(node_size=25, alpha=0.8, width=0.8, nodelist=nodelist, edgelist=edgelist,
                    node_color=nodecols, cmap=plt.cm.get_cmap('bwr'), vmin=0, vmax=1)
     edgelist = []
     edgecols = []
-    for v in results.variables:
+    n = len(results.variables)
+    cmap = distinguishable_color_map(int(n + 1))
+    for i, v in enumerate(results.variables):
         embv = embedding[v]
-        for (vi, vj) in combinations(embv[:-1], 2):
+        chain = []
+        col = cmap(i/n)
+        for (vi, vj) in combinations(embv, 2):
             if vi > vj:
                 vi, vj = vj, vi
             e = (vi, vj)
-            if e in qac_graph.edges:
-                edgelist.append((vi, vj))
-                edgecols.append(1.0)
+            if e in qac_graph.g.edges:
+                chain.append((vi, vj))
+                edgecols.append(col)
+        if len(embv) > 1 and len(chain) == 0:
+            raise ValueError
+        edgelist += chain
     qac_graph.draw(node_size=0.0, alpha=0.5, width=2.0, nodelist=nodelist, edgelist=edgelist,
                    node_color=[[1.0, 1.0, 1.0, 0.0]], edgecolors=[[1.0, 1.0, 1.0, 0.0]], linewidths=0.0,
-                   edge_color=edgecols, edge_cmap=plt.cm.get_cmap('bwr_r'),
-                   edge_vmin=0, edge_vmax=1)
+                   edge_color=edgecols)
     # for u, v in g2.edges:
     #     if instance.has_edge(u, v):
     #         if 'weight' in instance.edges[u, v]:
@@ -77,7 +96,7 @@ def draw_qac(qac_graph: PegasusK4NQACGraph, results: dimod.SampleSet, embedding,
     #              edgelist=edgelist, edge_vmin=-3.0, edge_vmax=8.0)
 
     # plt.show()
-    plt.savefig(f"pegasus_k4_nqac_embedding_{i}.pdf")
+    plt.savefig(output_name+"_embedding.pdf")
 
 
 def main(args=None):
@@ -132,11 +151,11 @@ def main(args=None):
         raise RuntimeError(f"Invalid method {args.qac_method}")
 
     if args.minor_embed:
-        sampler = EmbeddingComposite(qac_sampler)
+        sampler = EmbeddingComposite(qac_sampler, embedding_parameters={'tries': 32, 'threads': 4})
         emb_kwargs = {
             'chain_strength': args.chain_strength,
             'chain_break_method': weighted_random,
-            'return_embedding': True
+            'return_embedding': True,
         }
     else:
         qac_sampler.validate_structure(bqm)
@@ -147,13 +166,12 @@ def main(args=None):
                                **emb_kwargs, **qac_args, **dw_kwargs, **sched_kwags)
 
     if args.minor_embed:
-        embeddings = [r.info['embedding_context']['embedding'] for r in aggr_results]
         for i in range(len(aggr_results)):
-            draw_qac(qac_sampler.qac_graph, aggr_results[i], embeddings[i], i)
+            if args.draw_embedding:
+                emb = aggr_results[i].info['embedding_context']['embedding']
+                draw_qac(args.output+f"_{i}", qac_sampler.qac_graph, aggr_results[i], bqm, emb)
             aggr_results[i]._record = rfn.drop_fields(aggr_results[i].record, drop_names=['errors', 'ties'],
                                                       usemask=False, asrecarray=True)
-        with open("embeddings.yaml", 'w') as f:
-            yaml.dump(embeddings, f)
 
     all_results: dimod.SampleSet = dimod.concatenate(aggr_results)
     if mapping_n2l is not None:
@@ -177,6 +195,16 @@ def main(args=None):
     store = pd.HDFStore(h5_file, mode='w', complevel=5)
     store.append("samples", df_samples)
     store.append("info", df_properties)
+    if args.minor_embed:
+        emb_dat = {"avg_chain_length": [], "max_chain_length": []}
+        for i in range(len(aggr_results)):
+            emb = aggr_results[i].info['embedding_context']['embedding']
+            chain_lens = [len(ci) for ci in emb.values()]
+            emb_dat['avg_chain_length'].append(np.mean(chain_lens))
+            emb_dat['max_chain_length'].append(np.max(chain_lens))
+        emb_df = pd.DataFrame(emb_dat)
+        print(emb_df.describe())
+        store.append("embedding_info", emb_df)
     store.close()
     #df_samples.to_hdf(h5_file, key="samples", mode='a', complevel=5, format="table")
     #df_properties.to_hdf(h5_file, key="info", mode='a', complevel=5, format="table")

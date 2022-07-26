@@ -1,9 +1,14 @@
 import argparse
 import dimod
+import networkx as nx
 import numpy as np
 import pandas as pd
+import dwave_networkx as dnx
+from itertools import combinations, product
+from dimod.variables import Variables
 from dwave.preprocessing import ScaleComposite
 from dwave.system import DWaveSampler, AutoEmbeddingComposite
+from dwave.embedding import weighted_random
 from pegasustools.util.sched import interpret_schedule
 from pegasustools.util.adj import read_ising_adjacency
 
@@ -59,27 +64,14 @@ class AnnealerModuleBase:
                 aggr_results.append(res.aggregate())
             else:
                 aggr_results.append(res)
-        all_results = dimod.concatenate(aggr_results)
-        return all_results
+        #all_results = dimod.concatenate(aggr_results)
+        return aggr_results
 
-    @classmethod
-    def save_results(cls, output, all_results, mapping=None, preview_cols=None):
-        if mapping is not None:
-            all_results.relabel_variables(mapping)
-        # Preview results
-        lo = all_results.lowest()
-        lo_df: pd.DataFrame = lo.to_pandas_dataframe()
-        if preview_cols is None:
-            preview_cols = ['energy', 'rep', 'num_occurrences']
-
-        print(lo_df.loc[:, preview_cols])
-        num_gs = np.sum(lo.record.num_occurrences)
-        total_reads = np.sum(all_results.record.num_occurrences)
-        print(f"The lowest energy appears in {num_gs}/{total_reads} samples")
-        # samps_df = df = pd.DataFrame(all_results.record.sample, columns=all_results.variables)
-        num_vars = len(all_results.variables)
-        # Save results
-        df = all_results.to_pandas_dataframe()
+    def save_df(self, output, concat_results=None, aggr_results=None):
+        if concat_results is None:
+            concat_results = dimod.concatenate(aggr_results)
+        num_vars = len(concat_results.variables)
+        df = concat_results.to_pandas_dataframe()
         df_samples = df.iloc[:, :num_vars].astype("int8")
         df_properties = df.iloc[:, num_vars:]
         h5_file = output + ".h5"
@@ -87,6 +79,28 @@ class AnnealerModuleBase:
         store.append("samples", df_samples)
         store.append("info", df_properties)
         store.close()
+        return concat_results
+
+    def preview_results(self, concat_results, preview_cols=None):
+        # Preview results
+        lo = concat_results.lowest()
+        lo_df: pd.DataFrame = lo.to_pandas_dataframe()
+        if preview_cols is None:
+            preview_cols = ['energy', 'rep', 'num_occurrences']
+
+        print(lo_df.loc[:, preview_cols])
+        num_gs = np.sum(lo.record.num_occurrences)
+        total_reads = np.sum(concat_results.record.num_occurrences)
+        print(f"The lowest energy appears in {num_gs}/{total_reads} samples")
+
+    def save_results(self, output, aggr_results, mapping=None, preview_cols=None):
+        concat_results = dimod.concatenate(aggr_results)
+        if mapping is not None:
+            concat_results.relabel_variables(mapping)
+            for r in aggr_results:
+                r.relabel_variables(mapping)
+        self.preview_results(concat_results, preview_cols)
+        self.save_df(output, concat_results, aggr_results)
 
 
 class AnnealerModule(AnnealerModuleBase):
@@ -159,6 +173,15 @@ class ScaledModule(AnnealerModule):
 
 
 class MinorEmbeddingModule(AnnealerModule):
+
+    def main(self):
+        bqm, sampler, results = super(MinorEmbeddingModule, self).main()
+        for i in range(len(results)):
+            self.draw_minor_embedding(self.args.output+f'_{i}', results[i], bqm,
+                                      results[i].info['embedding_context']['embedding'])
+
+        return bqm, sampler, results
+
     def initialize_sampler(self):
         sampler = super(MinorEmbeddingModule, self).initialize_sampler()
         args = self.args
@@ -166,12 +189,70 @@ class MinorEmbeddingModule(AnnealerModule):
             sampler = AutoEmbeddingComposite(sampler)
             emb_kwargs = {
                 'chain_strength': args.chain_strength,
+                'chain_break_method': weighted_random,
                 'return_embedding': True
             }
         else:
             emb_kwargs = {}
         self.kwargs_list.append(emb_kwargs)
         return sampler
+
+    def draw_minor_embedding(self, output_name, results, bqm, embedding):
+        import matplotlib.pyplot as plt
+        pgraph = dnx.pegasus_graph(16)
+
+        fig, ax = plt.subplots(figsize=(12, 12))
+
+        # regenerate the embedded variables list
+        varslist = []
+        for v in results.variables:
+            varslist += list(embedding[v])
+
+        nodelist = []
+        for v in results.variables:
+            embv = embedding[v]
+            for vi in embv:
+                nodelist.append(vi)
+        pgraph = nx.subgraph(pgraph, nodelist)
+
+        edgelist = []
+        for e in bqm.quadratic.keys():
+            u, v = e
+            embu = embedding[u]
+            embv = embedding[v]
+            coupls = []
+            for vi, vj in product(embu, embv):
+                if (vi, vj) in pgraph.edges:
+                    coupls.append((vi, vj))
+            edgelist += coupls
+            if len(coupls) == 0:
+                raise ValueError
+
+        # edgelist = list(nx.subgraph(qac_graph.g, nodelist).edges())
+        dnx.draw_pegasus_embedding(pgraph, embedding, interaction_edges=bqm.quadratic.keys(),
+                                   unused_color=(0.2, 0.2, 0.2, 0.6), crosses=True,
+                                   node_size=16, width=0.4,  # alpha=0.8, width=0.8,
+                                   vmin=0, vmax=1)
+        dnx.draw_pegasus_embedding(pgraph, embedding, interaction_edges=bqm.quadratic.keys(),
+                                   crosses=True, unused_color=None,
+                                   node_size=16, width=1.8, alpha=0.4,
+                                   vmin=0, vmax=1)
+        plt.savefig(output_name+f"_embedding.pdf")
+
+    def save_df(self, output, concat_results=None, aggr_results=None):
+        super(MinorEmbeddingModule, self).save_df(output, concat_results, aggr_results)
+        h5_file = output + ".h5"
+        if self.args.minor_embed:
+            store = pd.HDFStore(h5_file, mode='a')
+            emb_dat = {"avg_chain_length": [], "max_chain_length": []}
+            for i in range(len(aggr_results)):
+                emb = aggr_results[i].info['embedding_context']['embedding']
+                chain_lens = [len(ci) for ci in emb.values()]
+                emb_dat['avg_chain_length'].append(np.mean(chain_lens))
+                emb_dat['max_chain_length'].append(np.max(chain_lens))
+            emb_df = pd.DataFrame(emb_dat)
+            print(emb_df.describe())
+            store.append("embedding_info", emb_df)
 
     @classmethod
     def add_arguments(cls, parser):
@@ -182,3 +263,4 @@ class MinorEmbeddingModule(AnnealerModule):
         p.add_argument("--chain-strength", type=float, default=None,
                        help="Chain strength for minor-embed")
         p.add_argument("--save-embedding", default=None)
+        p.add_argument("--draw-embedding", action='store_true')
