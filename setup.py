@@ -45,6 +45,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
+            'pgt-anneal = pegasustools.apps.anneal:main',
             'pgt-cell = pegasustools.apps.cell_anneal:main',
             'pgt-gen = pegasustools.apps.instance_gen:main',
             'pgt-qac = pegasustools.apps.qac_anneal:main',
