@@ -4,6 +4,16 @@ from scipy.special import betaincinv
 
 
 def beta_schedule(a, b, sc, lin_pnts, log_pnts):
+    """
+    Returns a scaled incomplete Beta function schedule
+        [ (betaincinv(s_i), s_i) ]
+    :param a:
+    :param b:
+    :param sc:
+    :param lin_pnts:
+    :param log_pnts:
+    :return:
+    """
     if a==1 and b==1: # Linear schedule case
         return [[0.0, 0.0], [1.0, 1.0]]
     lin_space = sc / (lin_pnts + 1)
@@ -29,6 +39,7 @@ def ramped_beta_schedule(a, b, sq, tf, tr, sc=0.9, lin_pnts=3, log_pnts=5):
     sched1.append([tf + tr, 1.0])
     return sched1
 
+
 def ramped_pause_schedule(t1, sp, tp, tr):
     t2 = t1 + tp
     sched = [
@@ -39,6 +50,23 @@ def ramped_pause_schedule(t1, sp, tp, tr):
     ]
     return sched
 
+
+def rbr_schedule(tr, tf, sr, a, b, sq, sc=0.9, lin_pnts=3, log_pnts=4):
+    # initial ramp
+    l = sr/tr  # ramp rate
+    sched = [[0.0, 0.0], [tr, sr]]
+    sched_beta = beta_schedule(a, b, sc, lin_pnts, log_pnts)[1:]
+    # beta schedule from ramp end to middle
+    sched1 = [[tr + tf * t, sr + (sq-sr)*s] for (t, s) in sched_beta]
+    sched += sched1
+    # ramp again to end
+    dsr2 = 1.0 - sq
+    tr2 = dsr2 * l
+    sched2 = [[tr + tf + tr2, 1.0]]
+    sched += sched2
+    return sched
+
+
 def args_to_sched(*sched_args):
     nargs = len(sched_args)
     if nargs % 2 != 0:
@@ -48,7 +76,8 @@ def args_to_sched(*sched_args):
 available_schedules = {
     'pl': ("Piecewise Linear", "t0 s0 t1 s1 ..."),
     'pr': ("Pause and ramp", "t1 sp tp tr"),
-    'beta': ("Ramped beta schedule (Boundary cancellation protocol)", "a b sq [sc]")
+    'beta': ("Ramped beta schedule (Boundary cancellation protocol)", "a b sq [sc]"),
+    'rbr': ("Ramp/Reverse Anneal (with BCP)/Ramp sequence", "tr sr a b sq")
 }
 
 
@@ -70,6 +99,13 @@ def interpret_schedule(tf, *sched_tokens):
                 raise RuntimeError("Expected at least three arguments: a b sq [sc]")
             a, b, sq = int(sched_args[0]), int(sched_args[1]), float(sched_args[2])
             return ramped_beta_schedule(a, b, sq, tf, 1.0)
+        elif sched_name == 'rbr':
+            if nargs != 5:
+                raise RuntimeError("Expected four arguments: tr a b sq")
+            tr, sr, a, b, sq = float(sched_args[0]), float(sched_args[1]), int(sched_args[2]), \
+                               int(sched_args[3]), float(sched_args[4])
+            return rbr_schedule(tr, tf, sr, a, b, sq)
+
         else:
             raise RuntimeError(f"Schedule type {sched_name} not recognized")
 

@@ -129,7 +129,8 @@ class AnnealerModule(AnnealerModuleBase):
             sched = interpret_schedule(args.tf, *args.schedule)
             print(sched)
             if 'anneal_schedule' in sampler.parameters:
-                sampler.validate_anneal_schedule(sched)
+                pass
+                #sampler.validate_anneal_schedule(sched)
         else:
             print(f"tf={args.tf}")
             sched = None
