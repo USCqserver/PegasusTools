@@ -253,6 +253,7 @@ class MinorEmbeddingModule(AnnealerModule):
             emb_df = pd.DataFrame(emb_dat)
             print(emb_df.describe())
             store.append("embedding_info", emb_df)
+            store.close()
 
     @classmethod
     def add_arguments(cls, parser):
