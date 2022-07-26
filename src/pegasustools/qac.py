@@ -139,6 +139,8 @@ class AbstractQACGraph:
         self.qubit_array = None
         self.nodes = None
         self.edges = None
+        self.node_intra_couplers = None
+        self.edge_inter_couplers = None
         #self.node_embeddings = None
         #self.edge_embeddings = None
 

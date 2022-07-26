@@ -1,7 +1,12 @@
 import argparse
 import numpy as np
+import networkx as nx
 import pandas as pd
+import yaml
 import dimod
+from itertools import combinations
+from dimod.variables import Variables
+from numpy.lib import recfunctions as rfn
 
 from pegasustools.app import add_general_arguments, add_qac_arguments, run_sampler, save_cell_results
 from pegasustools.qac import PegasusQACEmbedding
@@ -10,6 +15,69 @@ from pegasustools.util.adj import read_ising_adjacency, read_mapping
 from pegasustools.util.sched import interpret_schedule
 from dwave.preprocessing import ScaleComposite
 from dwave.system import DWaveSampler, EmbeddingComposite
+from dwave.embedding.chain_breaks import weighted_random
+
+
+def draw_qac(qac_graph: PegasusK4NQACGraph, results: dimod.SampleSet, embedding, i=0):
+    import matplotlib.pyplot as plt
+    fig, ax = plt.subplots(figsize=(12, 12))
+
+    # regenerate the embedded variables list
+    varslist = []
+    for v in results.variables:
+        varslist += list(embedding[v])
+    emb_variables = Variables(varslist)
+    nodecols = []
+    nodelist = []
+    mean_err_p = np.mean(results.record['errors'], axis=0)
+    for v in results.variables:
+        embv = embedding[v]
+        for vi in embv:
+            nodelist.append(vi)
+            nodecols.append(mean_err_p[emb_variables.index(vi)])
+    g2 = nx.subgraph(qac_graph.g, nodelist)
+    edgelist = list(nx.subgraph(qac_graph.g, nodelist).edges())
+    qac_graph.draw(node_size=25, alpha=0.8, width=0.8, nodelist=nodelist, edgelist=edgelist,
+                   node_color=nodecols, cmap=plt.cm.get_cmap('bwr'), vmin=0, vmax=1)
+    edgelist = []
+    edgecols = []
+    for v in results.variables:
+        embv = embedding[v]
+        for (vi, vj) in combinations(embv[:-1], 2):
+            if vi > vj:
+                vi, vj = vj, vi
+            e = (vi, vj)
+            if e in qac_graph.edges:
+                edgelist.append((vi, vj))
+                edgecols.append(1.0)
+    qac_graph.draw(node_size=0.0, alpha=0.5, width=2.0, nodelist=nodelist, edgelist=edgelist,
+                   node_color=[[1.0, 1.0, 1.0, 0.0]], edgecolors=[[1.0, 1.0, 1.0, 0.0]], linewidths=0.0,
+                   edge_color=edgecols, edge_cmap=plt.cm.get_cmap('bwr_r'),
+                   edge_vmin=0, edge_vmax=1)
+    # for u, v in g2.edges:
+    #     if instance.has_edge(u, v):
+    #         if 'weight' in instance.edges[u, v]:
+    #             w = instance.edges[u, v]['weight']
+    #             if w != 0.0:
+    #                 cols.append(instance.edges[u, v]['weight'])
+    #                 edgelist.append((l2n[u], l2n[v]))
+    # qac_graph.draw(edge_cmap=plt.cm.bwr, node_size=25, alpha=0.6, width=2.0,
+    #                edge_color=cols, edgelist=edgelist, edge_vmin=-3.0, edge_vmax=3.0)
+    #
+    # for u, v, em in qac_graph.g.edges.data('embedding'):
+    #     w = len(em)
+    #     cols.append(w)
+    #     edgelist.append((u, v))
+    # nodecols = []
+    # for u, em in qac_graph.g.nodes.data('embedding'):
+    #     w = len(em)
+    #     nodecols.append(w)
+    # qac_graph.draw(edge_cmap=plt.cm.get_cmap('coolwarm_r'), node_size=25, alpha=0.8, width=1.2,
+    #              edge_color=cols, node_color=nodecols, cmap=plt.cm.get_cmap('bwr_r'), vmin=3, vmax=6,
+    #              edgelist=edgelist, edge_vmin=-3.0, edge_vmax=8.0)
+
+    # plt.show()
+    plt.savefig(f"pegasus_k4_nqac_embedding_{i}.pdf")
 
 
 def main(args=None):
@@ -64,16 +132,29 @@ def main(args=None):
         raise RuntimeError(f"Invalid method {args.qac_method}")
 
     if args.minor_embed:
-        qac_sampler = EmbeddingComposite(qac_sampler)
+        sampler = EmbeddingComposite(qac_sampler)
         emb_kwargs = {
-            'chain_strength': args.chain_strength
+            'chain_strength': args.chain_strength,
+            'chain_break_method': weighted_random,
+            'return_embedding': True
         }
     else:
         qac_sampler.validate_structure(bqm)
+        sampler = qac_sampler
         emb_kwargs = {}
-    sampler = ScaleComposite(qac_sampler)
+    sampler = ScaleComposite(sampler)
     aggr_results = run_sampler(sampler, bqm, args, aggregate=False, run_gc=True, scalar=1.0/args.scale_j,
                                **emb_kwargs, **qac_args, **dw_kwargs, **sched_kwags)
+
+    if args.minor_embed:
+        embeddings = [r.info['embedding_context']['embedding'] for r in aggr_results]
+        for i in range(len(aggr_results)):
+            draw_qac(qac_sampler.qac_graph, aggr_results[i], embeddings[i], i)
+            aggr_results[i]._record = rfn.drop_fields(aggr_results[i].record, drop_names=['errors', 'ties'],
+                                                      usemask=False, asrecarray=True)
+        with open("embeddings.yaml", 'w') as f:
+            yaml.dump(embeddings, f)
+
     all_results: dimod.SampleSet = dimod.concatenate(aggr_results)
     if mapping_n2l is not None:
         all_results.relabel_variables(mapping_n2l)

@@ -165,7 +165,8 @@ class MinorEmbeddingModule(AnnealerModule):
         if args.minor_embed:
             sampler = AutoEmbeddingComposite(sampler)
             emb_kwargs = {
-                'chain_strength': args.chain_strength
+                'chain_strength': args.chain_strength,
+                'return_embedding': True
             }
         else:
             emb_kwargs = {}
