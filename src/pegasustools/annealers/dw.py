@@ -177,9 +177,10 @@ class MinorEmbeddingModule(AnnealerModule):
 
     def main(self):
         bqm, sampler, results = super(MinorEmbeddingModule, self).main()
-        for i in range(len(results)):
-            self.draw_minor_embedding(self.args.output+f'_{i}', results[i], bqm,
-                                      results[i].info['embedding_context']['embedding'])
+        if self.args.draw_embedding:
+            for i in range(len(results)):
+                self.draw_minor_embedding(self.args.output+f'_{i}', results[i], bqm,
+                                          results[i].info['embedding_context']['embedding'])
 
         return bqm, sampler, results
 
