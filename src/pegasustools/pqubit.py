@@ -343,20 +343,15 @@ def _embed_unit_cells(bqm: BinaryQuadraticModel, unit_cells: dict, nodelist, edg
 # Extract the solutions from individual unit cells, with the corresponding cell coordinate as a record entry
 def _extract_unit_cells_solutions(sampleset: dimod.SampleSet, cell_qubits: dict, bqm: BinaryQuadraticModel):
     split_results = []
-    #v_arr = []
     vars = sampleset.variables
     for v, cell in cell_qubits.items():
-        arr_idxs = np.asarray([vars.index[i] for i in cell])
-        #arr_idxs = np.asarray([cell])
+        arr_idxs = np.asarray([vars.index(i) for i in cell])
         cell_values = sampleset.record.sample[:, arr_idxs]
-        #nsamps = cell_values.shape[0]
         split_results.append(cell_values)
-        #v_arr += [v] * nsamps
     samples_arr = np.concatenate(split_results, axis=0)
 
     # Evaluate the energies within each unit cell
     energy_arr = bqm.energies((samples_arr, bqm.variables))
-    #v_arr = np.asarray(v_arr)
     sub_sampleset = dimod.SampleSet.from_samples(samples_arr, sampleset.vartype, energy_arr, info=sampleset.info)
 
     return sub_sampleset
