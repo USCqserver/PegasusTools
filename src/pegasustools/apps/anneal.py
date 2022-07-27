@@ -12,8 +12,7 @@ def main(args=None):
     args = parser.parse_args(args)
     annealer = AnnealModule(args)
     bqm, sampler, results = annealer.main()
-    return bqm, sampler, results
 
 
 if __name__ == "__main__":
-    bqm, sampler, results = main()
+    main()
