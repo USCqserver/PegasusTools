@@ -20,6 +20,8 @@ def add_general_arguments(parser: argparse.ArgumentParser):
     parser.add_argument("--qubo", action='store_true')
     parser.add_argument("--minor-embed", action='store_true',
                         help="Minor-embed the instance to the QAC graph")
+    parser.add_argument("--initial-chains", default=None,
+                        help="YAML file specifying mapping to initial chains.")
     parser.add_argument("--draw-embedding", action='store_true')
     parser.add_argument("--format", default="txt",
                         help="Input format for problem file. Defaults to 'txt' (whitespace delimited text)")

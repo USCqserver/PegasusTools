@@ -5,7 +5,8 @@ import networkx as nx
 import json
 from pegasustools.qac import PegasusQACEmbedding, PegasusQACGraph
 from pegasustools.nqac import PegasusK4NQACGraph
-from pegasustools.util.adj import save_graph_adjacency, save_ising_instance_graph, read_ising_adjacency_graph, read_mapping
+from pegasustools.util.adj import save_graph_adjacency, save_ising_instance_graph, read_ising_adjacency_graph, \
+    read_mapping, canonical_order_labels
 
 from dwave.system import DWaveSampler
 
@@ -71,21 +72,9 @@ def main():
     # The integer ordering of a QAC graph is mapped from the lexicographic ordering
     # of the logical node coordinates (t, x, z, u), regardless of inactive logical qubits
     # This means that unused integer labels can be skipped
-    sorted_nodes = sorted(g.nodes())
-    node_labels = {n: i for i, n in enumerate(sorted_nodes)}
-    str_node_labels = {str(n): i for i, n in enumerate(sorted_nodes)}
-    label_nodes = {i: str(n) for i, n in enumerate(sorted_nodes)}
-    mapping_dict = {"nodes_to_labels": str_node_labels, "labels_to_nodes": label_nodes}
-    #
-    #
-    # Relabel the graph to integer labels
-    g2 = nx.Graph()
-    g2.add_nodes_from(g)
-    g2.add_edges_from(g.edges)
-    g2 = nx.relabel_nodes(g2, node_labels)
-
+    mapping_dict, g2 = canonical_order_labels(g)
     # Set the original logical QAC node string '(t,x,z,u)' as an attribute
-    nx.set_node_attributes(g2, label_nodes, "qubit")
+    nx.set_node_attributes(g2, mapping_dict['labels_to_nodes'], "qubit")
     # Save the integer label adjacency list in plain text
     save_graph_adjacency(g2, args.dest)
 

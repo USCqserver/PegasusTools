@@ -12,7 +12,7 @@ from numpy.lib import recfunctions as rfn
 from pegasustools.app import add_general_arguments, add_qac_arguments, run_sampler, save_cell_results
 from pegasustools.qac import PegasusQACEmbedding
 from pegasustools.nqac import PegasusNQACEmbedding, PegasusK4NQACGraph
-from pegasustools.util.adj import read_ising_adjacency, read_mapping
+from pegasustools.util.adj import read_ising_adjacency, read_mapping, canonical_order_labels
 from pegasustools.util.sched import interpret_schedule
 from dwave.preprocessing import ScaleComposite
 from dwave.system import DWaveSampler, EmbeddingComposite, LazyFixedEmbeddingComposite
@@ -144,19 +144,31 @@ def main(args=None):
                  "auto_scale": False}
     if args.qac_method == "qac":
         qac_sampler = PegasusQACEmbedding(16, dw_sampler)
+        qac_graph = qac_sampler.qac_graph
     elif args.qac_method == "k4":
         qac_graph = PegasusK4NQACGraph.from_sampler(16, dw_sampler)
         qac_sampler = PegasusNQACEmbedding(16, dw_sampler, qac_graph)
     else:
         raise RuntimeError(f"Invalid method {args.qac_method}")
 
+    mapping_dict, g2 = canonical_order_labels(qac_graph.g, to_str=False)
+
     if args.minor_embed:
-        sampler = EmbeddingComposite(qac_sampler, embedding_parameters={'tries': 32, 'threads': 4})
+        embedding_parameters = {
+            'tries': 32, 'threads': 4
+        }
         emb_kwargs = {
             'chain_strength': args.chain_strength,
             'chain_break_method': weighted_random,
             'return_embedding': True,
         }
+
+        if args.initial_chains is not None:
+            with open(args.initial_chains) as f:
+                initial_chains = yaml.safe_load(f)
+            initial_chains = {k: [mapping_dict['labels_to_nodes'][vi] for vi in v] for k, v in initial_chains.items()}
+            embedding_parameters['initial_chains'] = initial_chains
+        sampler = EmbeddingComposite(qac_sampler, embedding_parameters=embedding_parameters)
     else:
         qac_sampler.validate_structure(bqm)
         sampler = qac_sampler

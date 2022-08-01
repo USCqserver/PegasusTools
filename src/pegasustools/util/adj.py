@@ -6,6 +6,24 @@ import json
 from ast import literal_eval
 
 
+def canonical_order_labels(g: nx.Graph, to_str=True):
+    sorted_nodes = sorted(g.nodes())
+    node_labels = {n: i for i, n in enumerate(sorted_nodes)}
+
+    g2 = nx.Graph()
+    g2.add_nodes_from(g)
+    g2.add_edges_from(g.edges)
+    g2 = nx.relabel_nodes(g2, node_labels)
+    if to_str:
+        str_node_labels = {str(n): i for i, n in enumerate(sorted_nodes)}
+        label_nodes = {i: str(n) for i, n in enumerate(sorted_nodes)}
+        mapping_dict = {"nodes_to_labels": str_node_labels, "labels_to_nodes": label_nodes}
+    else:
+        label_nodes = {i: n for i, n in enumerate(sorted_nodes)}
+        mapping_dict = {"nodes_to_labels": node_labels, "labels_to_nodes": label_nodes}
+    return mapping_dict, g2
+
+
 def read_ising_adjacency(filename, max_k=1.0, sep=None, qubo=False):
     """
     Reads a three-column text file specifying the adjacency
