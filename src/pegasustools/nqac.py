@@ -173,7 +173,7 @@ def try_embed_nqac_graph(lin, qua,  # qac_map,
     return qac_lin, qac_qua
 
 
-def k4_nqac_nice2xy(t, x, z, u, a=1.0, x0=0.0, y0=0.0):
+def k4_nqac_nice2xy(t, x, z, u, a=1.0, x0=0.0, y0=0.0, lx=0.4, ly=0.35, ay=None):
     """
     Get plottable cartesian coordinates of the cluster coordinate
     """
@@ -185,10 +185,11 @@ def k4_nqac_nice2xy(t, x, z, u, a=1.0, x0=0.0, y0=0.0):
 
     s = 2*u - 1
     # Image coordinates to plot coordinates
-    x = (float(xv) + s*0.4)
-    y = -(float(yv) + s*0.35)
-
-    return x0 + a*x, y0 + a*y
+    x = (float(xv) + s*lx)
+    y = -(float(yv) + s*ly)
+    if ay is None:
+        ay = a
+    return x0 + a*x, y0 + ay*y
 
 
 def _decode_all_samples(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
@@ -343,6 +344,7 @@ class PegasusK4NQACGraph(AbstractQACGraph):
             g.nodes[n]['embedding'] = lq_intra_couplers[n]
         for e in self.edges:
             g.edges[e]['embedding'] = lq_inter_couplers[e]
+            g.edges[e]['weight'] = len(lq_inter_couplers)
         self.g = g
         if purge_deg1:
             self.purge_deg1()
@@ -353,14 +355,30 @@ class PegasusK4NQACGraph(AbstractQACGraph):
         edges = set(sampler.edgelist)
         return cls(m, nodes, edges)
 
-    def draw(self, draw_nodes=None, **draw_kwargs):
+    def draw(self, draw_nodes=None, a=60.0, ay=None, lx=0.4, ly=0.35, return_graph=False, **draw_kwargs):
         if 'nodelist' in draw_kwargs:
             draw_nodes = draw_kwargs['nodelist']
         else:
             draw_nodes = self.nodes
-        pos_list = {node: k4_nqac_nice2xy(*node, a=60.0) for node in draw_nodes}
+        pos_list = {node: k4_nqac_nice2xy(*node, a=a, lx=lx, ly=ly, ay=ay) for node in draw_nodes}
         g = self.g
         nx.draw_networkx(g, pos=pos_list, with_labels=False, font_size=12, **draw_kwargs)
+        if return_graph:
+            g2 = nx.Graph()
+            g2.add_nodes_from(list(sorted(pos_list.keys())))
+            g_sub = g.subgraph(list(g2.nodes))
+            g2.add_edges_from(g_sub.edges)
+
+            for u in g2.nodes:
+                g2.nodes[u]['position'] = pos_list[u]
+
+            for u, v in g2.edges:
+                if u in pos_list and v in pos_list:
+                    g2.edges[u, v]['distance'] = np.abs(np.asarray(pos_list[u]) - np.asarray(pos_list[v]))
+                else:
+                    g2.edges[u, v]['distance'] = None
+            return g2
+
 
 
 class PegasusNQACEmbedding(AbstractQACEmbedding):
