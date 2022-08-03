@@ -2,11 +2,11 @@
 import argparse
 import networkx as nx
 import numpy as np
-import json
 import yaml
 from numpy.random import default_rng, Generator
 from pegasustools.util.graph import random_walk_loop, random_walk_chain
-from pegasustools.util.adj import save_ising_instance_graph, ising_graph_to_bqm
+from pegasustools.util.adj import save_ising_instance_graph, ising_graph_to_bqm, canonical_order_labels, \
+    save_graph_adjacency
 
 
 def frustrated_loops(g: nx.Graph, m, j=-1.0, jf=1.0, min_loop=6, max_iters=10000, rng: Generator=None):
@@ -62,6 +62,32 @@ def frustrated_loops(g: nx.Graph, m, j=-1.0, jf=1.0, min_loop=6, max_iters=10000
     g2.remove_edges_from(zero_edges)
     return g2, loops
 
+
+def maximal_independent_set(g: nx.Graph, n, alpha=2.0, rng: Generator=None):
+    """
+    Generate a random maximal independent set instance from the graph g in Ising form.
+    This simply generates the instance from a random n-node subgraph of g.
+    :param g:
+    :param n:
+    :param alpha:
+    :return:
+    """
+    if rng is None:
+        rng = default_rng()
+    nodes = list(g.nodes)
+    sel_nodes = rng.choice(len(nodes), size=n, replace=False)
+    g_sub : nx.Graph = nx.subgraph(g, sel_nodes)
+    # First generate the qubo form of the instance
+    g2 = nx.Graph()
+    g2.add_nodes_from(g_sub.nodes)
+    g2.add_edges_from(g_sub.edges)
+
+    for u in g2.nodes:
+        g2.nodes[u]["bias"] = -1.0
+    for u, v in g2.edges:
+        g2.edges[u, v]["weight"] = alpha
+
+    return g2
 
 def random_1d_chain(g: nx.Graph, n, j=-1.0,  max_iters=10000,  rng: Generator=None):
     """
@@ -213,59 +239,15 @@ def dilute_nodes(g: nx.Graph, p, rng: Generator=None):
     return g
 
 
-def generate_wishart_planted(g: nx.Graph, args):
-
-    m = int(args.clause_density * n)
-    print(f" * instance size = {n}")
-    print(f" * clause density = {args.clause_density}")
-    print(f" * num clauses = {m}")
-    r = args.min_clause_size
-    for i in range(args.rejection_iters):
-        g2, loops = frustrated_loops(g, m, min_loop=r, rng=rng)
-        if all(abs(j) <= args.range for (u, v, j) in g2.edges.data("weight")):
-            print(f" * range {args.range} satisfied in {i + 1} iterations")
-            cc = list(c for c in nx.connected_components(g2) if len(c) > 1)
-            cc.sort(key=lambda c: len(c), reverse=True)
-            ccn = [len(c) for c in cc]
-            print(f" * Connected component sizes: {ccn}")
-            if len(ccn) > 1:
-                print(" ** Rejected multiple connected components")
-                continue
-            else:
-                e0 = 0.0
-                for l in loops:
-                    nl = len(l)
-                    e0 += -nl + 2.0
-                print(f" ** Found {len(loops)} loop instance: e_gs = {e0}")
-                break
-    else:
-        raise RuntimeError(f"Failed to satisfy range ({args.range}) within {args.rejection_iters} iterations")
-    loop_lengths = [len(l) for l in loops]
-    bins = np.concatenate([np.arange(r, 4 * r) - 0.5, [1000.0]])
-    hist, _ = np.histogram(loop_lengths, bins)
-    print(bins)
-    print(hist)
-
-    bqm = ising_graph_to_bqm(g2)
-    numvar = bqm.num_variables
-    e = bqm.energy((np.ones(numvar, dtype=int), bqm.variables))
-    print(f"* GS Energy: {e}")
-    save_ising_instance_graph(g2, args.dest)
-    if args.instance_info is not None:
-        props = {"gs_energy": float(e),
-                 "num_loops": len(loops),
-                 "size": numvar
-                 }
-        with open(args.instance_info, 'w') as f:
-            yaml.safe_dump(props, f, default_flow_style=False)
-    return
-
 def main():
     parser = argparse.ArgumentParser(
         description="Generate a problem instance over an arbitrary graph"
     )
-    parser.add_argument("--clause-density", type=float, default=1.0,
-                        help="Number of clauses as a fraction of problem size (for clause-based instances)")
+    parser.add_argument("--density", type=float, default=1.0,
+                        help="Generic density parameter as a fraction of problem size.")
+    parser.add_argument("--clause-density", type=float, default=1.0, dest="density",
+                        help="Number of clauses as a fraction of problem size (for clause-based instances)."
+                             " Alias of --density.")
     parser.add_argument("--min-clause-size", type=int, default=6,
                         help="Minimum size of a clause (for clause-based instances)")
     parser.add_argument("--range", type=float, default=9.0,
@@ -288,13 +270,17 @@ def main():
                         help="Coupling strength parameter")
     parser.add_argument("--length", type=int, default=None,
                         help="Length parameter for 1D instances")
+    parser.add_argument("--sub-graph", default=None,
+                        help="Output destination for the embedding of the instance into the topology graph. "
+                        "Required to recover the original placement if the instance only uses a subgraph of the topology "
+                        "or is diluted.")
     #parser.add_argument("--non-degenerate", action='store_true',
     #                    help="Force the planted ground state of a single clause to be non-degenerate.\n"
     #                         "\tfl: The AFM coupling strength is reduced to 0.75")
     parser.add_argument("topology", type=str, help="Text file specifying graph topology."
                                                    " Ignored if the instance class generates its own graph.")
     parser.add_argument("instance_class",
-                        choices=["fl", "r3", "bsg", "wis", "r1d", "s28"],
+                        choices=["fl", "r3", "bsg", "wis", "r1d", "s28", "mis"],
                         help="Instance class to generate")
     parser.add_argument("dest", type=str,
                         help="Save file for the instance specification in Ising adjacency format")
@@ -386,6 +372,18 @@ def main():
         g2 = binomial_spin_glass(g, rng)
     elif args.instance_class == "s28":
         g2 = sidon_28(g, rng)
+    elif args.instance_class == "mis":
+        if args.sub_graph is None:
+            raise ValueError("--sub-graph option is required for 'mis' instances")
+        m = int(args.clause_density * n)
+        alpha = 2.0 if args.coupling_strength is not None else args.coupling_strength
+        g2 = maximal_independent_set(g, m, alpha, rng)
+        mapping_dict, g2 = canonical_order_labels(g2)
+        # Set the original logical QAC node string '(t,x,z,u)' as an attribute
+        nx.set_node_attributes(g2, mapping_dict['labels_to_nodes'], "qubit")
+        # Save the integer label adjacency list in plain text
+        save_graph_adjacency(g2, args.sub_graph)
+        save_ising_instance_graph(g2, args.dest)
     else:
         raise RuntimeError(f"Instance Class {args.instance_class} is not known")
     # Apply dilution if requested
