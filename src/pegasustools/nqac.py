@@ -9,7 +9,6 @@ from itertools import combinations, product
 from pegasustools.qac import purge_deg1, AbstractQACGraph, AbstractQACEmbedding
 from pegasustools.pqubit import collect_available_unit_cells, Pqubit
 from pegasustools.util.graph import random_walk_loop
-from pegasustools.embed import SquareEmbedding
 LQ = TypeVar('LQ')
 PQ = TypeVar('PQ')
 PJ = Tuple[PQ, PQ]
@@ -259,19 +258,19 @@ class PegasusK4NQACGraph(AbstractQACGraph):
         # Furthermore, all connected node pairs are ordered lexicographically
         # Horizontal-directed external bonds
         #  (t, x, z, u)  -- (t, x+1, z, u),  0 <= x < m-2
-        for t in range(3):
-            for x in range(m - 2):
-                for z in range(m - 1):
-                    for u in range(2):
-                            qac_edges.add(((t, x, z, u), (t, x + 1, z, u)))
+        # for t in range(3):
+        #     for x in range(m - 2):
+        #         for z in range(m - 1):
+        #             for u in range(2):
+        #                     qac_edges.add(((t, x, z, u), (t, x + 1, z, u)))
         # Vertical-directed external bonds
         #  (t, x, z, u)  -- (t, x, z+1, u),  0 <= z < m-2 except (t=0,z=0)
-        for t in range(3):
-            for x in range(m - 1):
-                for z in range(m - 2):
-                    #if not (t == 0 and z == 0):
-                    for u in range(2):
-                        qac_edges.add(((t, x, z, u), (t, x, z + 1, u)))
+        # for t in range(3):
+        #     for x in range(m - 1):
+        #         for z in range(m - 2):
+        #             #if not (t == 0 and z == 0):
+        #             for u in range(2):
+        #                 qac_edges.add(((t, x, z, u), (t, x, z + 1, u)))
 
         # Cluster bonds
         #  (t, x, z, 0)  -- (t, x, z, 1),
@@ -322,8 +321,8 @@ class PegasusK4NQACGraph(AbstractQACGraph):
         # A subgraph of K4 with at least 3 nodes and 3 edges must be connected, so we accept with this criterion
         lq_intra_couplers, lq_inter_couplers = embed_logical_qubits(
             logical_qubit_map, qac_edges, edge_set, strict=False, direct_coupling=False,
-            accept_qubit_crit=lambda q, lc: len(q) > 3 and len(lc) > 3,
-            accept_coupler_crit=lambda q1, q2, lc: len(lc) > 2
+            accept_qubit_crit=lambda q, lc: len(q) >= 3 and len(lc) >= 3,
+            accept_coupler_crit=lambda q1, q2, lc: len(lc) >= 2
         )
 
         # self.node_embeddings = lq_intra_couplers
@@ -344,7 +343,7 @@ class PegasusK4NQACGraph(AbstractQACGraph):
             g.nodes[n]['embedding'] = lq_intra_couplers[n]
         for e in self.edges:
             g.edges[e]['embedding'] = lq_inter_couplers[e]
-            g.edges[e]['weight'] = len(lq_inter_couplers)
+            g.edges[e]['weight'] = len(lq_inter_couplers[e])
         self.g = g
         if purge_deg1:
             self.purge_deg1()
