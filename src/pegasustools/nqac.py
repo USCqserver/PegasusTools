@@ -379,7 +379,6 @@ class PegasusK4NQACGraph(AbstractQACGraph):
             return g2
 
 
-
 class PegasusNQACEmbedding(AbstractQACEmbedding):
     def __init__(self, m, child_sampler, nqac_graph: PegasusK4NQACGraph):
         super(PegasusNQACEmbedding, self).__init__(m, child_sampler, nqac_graph)

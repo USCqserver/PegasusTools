@@ -3,6 +3,7 @@ import dimod
 import networkx as nx
 import numpy as np
 import pandas as pd
+import yaml
 import dwave_networkx as dnx
 from itertools import combinations, product
 from dimod.variables import Variables
@@ -10,7 +11,9 @@ from dwave.preprocessing import ScaleComposite
 from dwave.system import DWaveSampler, AutoEmbeddingComposite
 from dwave.embedding import weighted_random
 from pegasustools.util.sched import interpret_schedule
-from pegasustools.util.adj import read_ising_adjacency
+from pegasustools.util.adj import read_ising_adjacency, read_mapping
+from pegasustools.embed import VariableMappingComposite
+from pegasustools.embed.drawing import draw_minor_embedding
 
 
 class AnnealerModuleBase:
@@ -26,12 +29,27 @@ class AnnealerModuleBase:
         return kwargs
 
     def main(self):
+        """
+        Main procedure of the Annealer Module
+        :return: initialized BQM, initialized sampler, sampling results
+        """
         bqm = self.initialize_bqm()
         sampler = self.initialize_sampler()
         kwargs = self.generate_kwargs_dict()
         results = self.run_sampler(sampler, bqm, self.args.reps, aggregate=self.aggregate, **kwargs)
+        results = self.process_results(bqm, sampler, results)
         self.save_results(self.args.output, results)
         return bqm, sampler, results
+
+    def process_results(self, bqm, sampler, results):
+        """
+        Any additional post-processing before saving the results
+        :param bqm:
+        :param sampler:
+        :param results:
+        :return:
+        """
+        return results
 
     def initialize_bqm(self):
         raise NotImplementedError
@@ -118,7 +136,8 @@ class AnnealerModule(AnnealerModuleBase):
         self.initialize_schedule(sampler)
         dw_kwargs = {"num_spin_reversal_transforms": 1 if args.rand_gauge else 0,
                      "num_reads": args.num_reads,
-                     "auto_scale": False}
+                     "auto_scale": args.auto_scale}
+
         self.kwargs_list.append(dw_kwargs)
         return sampler
 
@@ -152,94 +171,76 @@ class AnnealerModule(AnnealerModuleBase):
         p.add_argument("--qubo", action='store_true')
         p.add_argument("--format", default="txt",
                             help="Input format for problem file. Defaults to 'txt' (whitespace delimited text)")
+        parser.add_argument("--auto-scale", action='store_true',
+                            help="Auto-scale all couplings on the hardware graph (not compatible with --scale-j)"
+                            )
         p.add_argument("problem",
                        help="An annealing problem, specified in a text file with three columns with the adjacency list")
         p.add_argument("output", help="Prefix for output data")
+        return p
 
 
 class ScaledModule(AnnealerModule):
     def initialize_sampler(self):
         sampler = super(ScaledModule, self).initialize_sampler()
         args = self.args
+        if args.auto_scale and args.scale_j is not None:
+            print("Warning: --scale-j is being used with --auto-scale")
+
+        if args.scale_j is None:
+            scale_j = 1.0
+        else:
+            scale_j = args.scale_j
+
         sampler = ScaleComposite(sampler)
-        scale_kwargs = {'scalar': 1.0 / args.scale_j}
+        scale_kwargs = {'scalar': 1.0 / scale_j}
         self.kwargs_list.append(scale_kwargs)
         return sampler
 
     @classmethod
     def add_arguments(cls, parser):
-        super(ScaledModule, cls).add_arguments(parser)
-        parser.add_argument("--scale-j", type=float, default=1.0,
+        p = super(ScaledModule, cls).add_arguments(parser)
+        p.add_argument("--scale-j", type=float, default=None,
                        help="Rescale all biases and couplings as J / scale_J")
+        return p
 
 
 class MinorEmbeddingModule(AnnealerModule):
+    def __init__(self, *args, **kwargs):
+        super(MinorEmbeddingModule, self).__init__(*args, **kwargs)
+        self.child_graph = None
+        self.logical_graph = None
 
     def main(self):
         bqm, sampler, results = super(MinorEmbeddingModule, self).main()
         if self.args.draw_embedding:
+            pgraph = dnx.pegasus_graph(16)
             for i in range(len(results)):
-                self.draw_minor_embedding(self.args.output+f'_{i}', results[i], bqm,
+                draw_minor_embedding(self.args.output+f'_{i}_embedding.pdf', pgraph, results[i], bqm,
                                           results[i].info['embedding_context']['embedding'])
-
         return bqm, sampler, results
 
     def initialize_sampler(self):
         sampler = super(MinorEmbeddingModule, self).initialize_sampler()
         args = self.args
         if args.minor_embed:
-            sampler = AutoEmbeddingComposite(sampler)
+            embedding_parameters = {
+                'tries': args.embedding_tries, 'threads': args.embedding_threads
+            }
             emb_kwargs = {
                 'chain_strength': args.chain_strength,
                 'chain_break_method': weighted_random,
                 'return_embedding': True
             }
+            if args.initial_chains is not None:
+                with open(args.initial_chains) as f:
+                    initial_chains = yaml.safe_load(f)
+                embedding_parameters['initial_chains'] = initial_chains
+            sampler = AutoEmbeddingComposite(sampler, embedding_parameters=embedding_parameters)
         else:
             emb_kwargs = {}
         self.kwargs_list.append(emb_kwargs)
         return sampler
-
-    def draw_minor_embedding(self, output_name, results, bqm, embedding):
-        import matplotlib.pyplot as plt
-        pgraph = dnx.pegasus_graph(16)
-
-        fig, ax = plt.subplots(figsize=(12, 12))
-
-        # regenerate the embedded variables list
-        varslist = []
-        for v in results.variables:
-            varslist += list(embedding[v])
-
-        nodelist = []
-        for v in results.variables:
-            embv = embedding[v]
-            for vi in embv:
-                nodelist.append(vi)
-        pgraph = nx.subgraph(pgraph, nodelist)
-
-        edgelist = []
-        for e in bqm.quadratic.keys():
-            u, v = e
-            embu = embedding[u]
-            embv = embedding[v]
-            coupls = []
-            for vi, vj in product(embu, embv):
-                if (vi, vj) in pgraph.edges:
-                    coupls.append((vi, vj))
-            edgelist += coupls
-            if len(coupls) == 0:
-                raise ValueError
-
-        # edgelist = list(nx.subgraph(qac_graph.g, nodelist).edges())
-        dnx.draw_pegasus_embedding(pgraph, embedding, interaction_edges=bqm.quadratic.keys(),
-                                   unused_color=(0.2, 0.2, 0.2, 0.6), crosses=True,
-                                   node_size=16, width=0.4,  # alpha=0.8, width=0.8,
-                                   vmin=0, vmax=1)
-        dnx.draw_pegasus_embedding(pgraph, embedding, interaction_edges=bqm.quadratic.keys(),
-                                   crosses=True, unused_color=None,
-                                   node_size=16, width=1.8, alpha=0.4,
-                                   vmin=0, vmax=1)
-        plt.savefig(output_name+f"_embedding.pdf")
 
     def save_df(self, output, concat_results=None, aggr_results=None):
         super(MinorEmbeddingModule, self).save_df(output, concat_results, aggr_results)
@@ -262,8 +263,31 @@ class MinorEmbeddingModule(AnnealerModule):
         super(MinorEmbeddingModule, cls).add_arguments(parser)
         p = parser.add_argument_group("Minor Embedding")
         p.add_argument("--minor-embed", action='store_true',
-                       help="Minor-embed the instance to the QAC graph")
+                       help="Minor-embed the instance to underlying graph")
         p.add_argument("--chain-strength", type=float, default=None,
                        help="Chain strength for minor-embed")
-        p.add_argument("--save-embedding", default=None)
+        p.add_argument("--embedding-tries", type=int, default=64)
+        p.add_argument("--embedding-threads", type=int, default=1)
         p.add_argument("--draw-embedding", action='store_true')
+        return p
+
+
+class VariableMappingModule(AnnealerModule):
+    def __init__(self, *args, **kwargs):
+        super(VariableMappingModule, self).__init__(*args, **kwargs)
+        self.mapping_l2n = None
+        self.mapping_n2l = None
+
+    @classmethod
+    def add_arguments(cls, parser: argparse.ArgumentParser):
+        p = super(VariableMappingModule, cls).add_arguments(parser)
+        p.add_argument("--mapping", help="Apply a variable mapping to the problem before embedding.")
+
+    def initialize_sampler(self):
+        sub_sampler = super(VariableMappingModule, self).initialize_sampler()
+        if self.args.mapping is not None:
+            variable_mapping = read_mapping(self.args.mapping)
+            sampler = VariableMappingComposite(sub_sampler, variable_mapping=variable_mapping)
+        else:
+            sampler = sub_sampler
+        return sampler

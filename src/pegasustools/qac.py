@@ -5,7 +5,8 @@ from typing import Union
 from dimod import BQM
 import networkx as nx
 import dimod
-from dimod import StructureComposite, Structured, bqm_structured, AdjVectorBQM
+from dimod import StructureComposite, Structured, bqm_structured, AdjVectorBQM, ComposedSampler
+from pegasustools.embed.structured import PgtStructured
 from pegasustools.pqubit import collect_available_unit_cells, Pqubit
 from pegasustools.util.graph import random_walk_loop
 
@@ -400,7 +401,7 @@ def _decode_c_array(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
     return min_q_samps, min_energies
 
 
-class AbstractQACEmbedding(StructureComposite):
+class AbstractQACEmbedding(StructureComposite, PgtStructured):
     def __init__(self, m, child_sampler, qac_graph: AbstractQACGraph):
 
         child_nodes = set(child_sampler.nodelist)
@@ -413,6 +414,9 @@ class AbstractQACEmbedding(StructureComposite):
         self._child_nodes = child_nodes
         self._child_edges = child_edges
         self.qac_graph = qac_graph
+
+    def networkx_graph(self) -> nx.Graph:
+        return self.qac_graph.g
 
 
 class PegasusQACEmbedding(AbstractQACEmbedding):
