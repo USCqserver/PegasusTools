@@ -1,8 +1,11 @@
 import numpy as np
+from numpy.lib import recfunctions
+from dimod import SampleSet
 from typing import Union, List, Optional, Tuple
 from .adj import *
 from .sched import *
 from .stats import weighed_bayesian_boots, bayesian_boots
+
 
 def ising_to_intlabel(samples: np.ndarray):
     """
@@ -168,3 +171,72 @@ def bootstrap_apply(f, x: Union[np.ndarray, List[np.ndarray]], samps=32, weights
         fx_samp = np.asarray([f(xi) for xi in sample])
 
     return BootstrapSample(fx_samp)
+
+
+def _iter_records(samplesets, vartype, variables):
+    # coerce each record into the correct vartype and variable-order
+    for samples in samplesets:
+
+        # coerce vartype
+        if samples.vartype is not vartype:
+            samples = samples.change_vartype(vartype, inplace=False)
+
+        if samples.variables != variables:
+            new_record = samples.record.copy()
+            order = [samples.variables.index(v) for v in variables]
+            new_record.sample = samples.record.sample[:, order]
+            yield new_record
+        else:
+            # order matches so we're done
+            yield samples.record
+
+
+def concatenate(samplesets, defaults=None, concat_info: Optional[Dict] = None):
+    """Combine sample sets.
+
+    Args:
+        samplesets (iterable[:obj:`.SampleSet`):
+            Iterable of sample sets.
+
+        defaults (dict, optional):
+            Dictionary mapping data vector names to the corresponding default values.
+
+        concat_info: concatenated information dictionary
+    Returns:
+
+        :obj:`.SampleSet`: A sample set with the same vartype and variable order as the first
+        given in `samplesets`.
+
+    Examples:
+        >>> a = dimod.SampleSet.from_samples(([-1, +1], 'ab'), dimod.SPIN, energy=-1)
+        >>> b = dimod.SampleSet.from_samples(([-1, +1], 'ba'), dimod.SPIN, energy=-1)
+        >>> ab = dimod.concatenate((a, b))
+        >>> ab.record.sample
+        array([[-1,  1],
+               [ 1, -1]], dtype=int8)
+
+    """
+
+    itertup = iter(samplesets)
+
+    try:
+        first = next(itertup)
+    except StopIteration:
+        raise ValueError("samplesets must contain at least one SampleSet")
+
+    vartype = first.vartype
+    variables = first.variables
+
+    records = [first.record]
+    records.extend(_iter_records(itertup, vartype, variables))
+
+    # dev note: I was able to get ~2x performance boost when trying to
+    # implement the same functionality here by hand (I didn't know that
+    # this function existed then). However I think it is better to use
+    # numpy's function and rely on their testing etc. If however this becomes
+    # a performance bottleneck in the future, it might be worth changing.
+    record = recfunctions.stack_arrays(records, defaults=defaults,
+                                       asrecarray=True, usemask=False)
+    if concat_info is None:
+        concat_info = {}
+    return SampleSet(record, variables, concat_info, vartype)

@@ -52,10 +52,11 @@ class DrawEmbeddingWrapper(ComposedSampler):
     Wrapper around  an embedding sampler to draw and save embeddings using
     the embedding context.
     """
-    def __init__(self, embedding_sampler, drawing_output_name):
+    def __init__(self, embedding_sampler, drawing_output_name, embedding_name='embedding'):
         self._children = [embedding_sampler]
         self.call_count = 0
         self.drawing_output_name = drawing_output_name
+        self.embedding_name = embedding_name
 
     @property
     def parameters(self) -> typing.Dict[str, typing.Any]:
@@ -74,7 +75,7 @@ class DrawEmbeddingWrapper(ComposedSampler):
         samples: SampleSet = self.child.sample(bqm, **parameters)
         structured_child = child_structure_dfs(self)
         child_graph = structured_child.to_networkx_graph()
-        draw_minor_embedding(self.drawing_output_name + f'_{self.call_count}.pdf',
+        draw_minor_embedding(self.drawing_output_name + f'_{self.embedding_name}_{self.call_count}.pdf',
                              child_graph, samples, bqm,
                              samples.info['embedding_context']['embedding'])
         self.call_count += 1

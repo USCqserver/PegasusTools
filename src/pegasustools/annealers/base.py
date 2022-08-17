@@ -12,10 +12,12 @@ from dimod.variables import Variables
 from dwave.preprocessing import ScaleComposite
 from dwave.system import DWaveSampler, AutoEmbeddingComposite
 from dwave.embedding import weighted_random
+from pegasustools.util import concatenate
 from pegasustools.util.sched import interpret_schedule
 from pegasustools.util.adj import read_ising_adjacency, read_mapping
 from pegasustools.embed import VariableMappingComposite
 from pegasustools.embed.drawing import DrawEmbeddingWrapper
+from pegasustools.embed.util import EmbeddingSummaryWrapper
 
 
 class AnnealerModuleBase:
@@ -35,12 +37,16 @@ class AnnealerModuleBase:
 
 
 class CompositeAnnealerModule(AnnealerModuleBase):
-    def __init__(self, child_module: AnnealerModuleBase):
+    def __init__(self, child_module: AnnealerModuleBase, **kwargs):
         self.child_module = child_module
         self._sampler_kwargs = {}
+        if 'verbose' in kwargs:
+            self.verbose = kwargs['verbose']
+        else:
+            self.verbose = False
 
-    def initialize_sampler(self, *args, **kwargs):
-        return self.child_module.initialize_sampler(*args, **kwargs)
+    def initialize_sampler(self):
+        return self.child_module.initialize_sampler()
 
     def process_results(self, bqm, sampler, results):
         return results
@@ -117,7 +123,7 @@ class AnnealerModuleRunner:
         self.annealer_module = annealer_module
         self.aggregate = aggregate
         self.preview_columns = preview_columns
-
+        self.verbose = kwargs['verbose']
         self.reps = kwargs['reps']
         self.problem_file = kwargs['problem']
         self.output = kwargs['output']
@@ -127,6 +133,7 @@ class AnnealerModuleRunner:
     @classmethod
     def add_arguments(cls, parser: argparse.ArgumentParser):
         p = parser.add_argument_group("Main Arguments")
+        p.add_argument("--verbose", action='store_true')
         p.add_argument("--reps", type=int, default=1,
                        help="Number of repetitions of data collection")
         p.add_argument("--qubo", action='store_true')
@@ -187,7 +194,8 @@ class AnnealerModuleRunner:
 
     def save_df(self, output, concat_results=None, aggr_results=None):
         if concat_results is None:
-            concat_results = dimod.concatenate(aggr_results)
+            concat_results = self.concat_results(aggr_results)
+
         num_vars = len(concat_results.variables)
         df = concat_results.to_pandas_dataframe()
         df_samples = df.iloc[:, :num_vars].astype("int8")
@@ -196,6 +204,10 @@ class AnnealerModuleRunner:
         store = pd.HDFStore(h5_file, mode='w', complevel=5)
         store.append("samples", df_samples)
         store.append("info", df_properties)
+        if 'dataframes' in concat_results.info:
+            for k, v in concat_results.info['dataframes'].items():
+                #store.put(f"pgt/{k}", v, format="table")
+                store.append(f"pgt/{k}", v)
         store.close()
         return concat_results
 
@@ -213,18 +225,37 @@ class AnnealerModuleRunner:
         print(f"The lowest energy appears in {num_gs}/{total_reads} samples")
 
     def save_results(self, output, aggr_results):
-        concat_results = dimod.concatenate(aggr_results)
+        concat_results = self.concat_results(aggr_results)
         self.preview_results(concat_results)
         self.save_df(output, concat_results, aggr_results)
 
+    def concat_results(self, aggr_results):
+        concat_info = None
+        if 'dataframes' in aggr_results[0].info:
+            concat_info = {}
+            keys = aggr_results[0].info['dataframes'].keys()
+            for k in keys:
+                dfs = []
+                for i, res in enumerate(aggr_results):
+                    df = res.info['dataframes'][k]
+                    #df["rep"] = np.full(len(df), i)
+                    dfs.append(df)
+                #concat_info[k] = pd.concat(dfs, ignore_index=True)
+                concat_info[k] = pd.concat(
+                    dfs, #ignore_index=True,
+                    keys=list(range(len(aggr_results))),
+                    names=["rep", "idx"])
+        concat_results = concatenate(
+            aggr_results, concat_info={'dataframes': concat_info})
+        return concat_results
 
 class ScaledModule(CompositeAnnealerModule):
     def __init__(self, child_module, scale_j=None, **kwargs):
         super(ScaledModule, self).__init__(child_module)
         self.scale_j = scale_j
 
-    def initialize_sampler(self, *args, **kwargs):
-        sampler = self.child_module.initialize_sampler(*args, **kwargs)
+    def initialize_sampler(self):
+        sampler = self.child_module.initialize_sampler()
 
         scale_j = self.scale_j
         if scale_j is None:
@@ -250,13 +281,16 @@ class ScaledModule(CompositeAnnealerModule):
 
 
 class MinorEmbeddingModule(CompositeAnnealerModule):
-    def __init__(self, child_module, **kwargs):
+    def __init__(self, child_module, embedding_name='embedding', **kwargs):
         super(MinorEmbeddingModule, self).__init__(child_module)
+        self.embedding_name = embedding_name
+
         self.minor_embed = kwargs['minor_embed']
         self.chain_strength = kwargs['chain_strength']
         self.embedding_tries = kwargs['embedding_tries']
         self.embedding_threads = kwargs['embedding_threads']
         self.draw_embedding = kwargs['draw_embedding']
+        self.track_chains = kwargs['track_chains']
 
     @classmethod
     def add_arguments(cls, parser):
@@ -268,6 +302,7 @@ class MinorEmbeddingModule(CompositeAnnealerModule):
         p.add_argument("--embedding-tries", type=int, default=64)
         p.add_argument("--embedding-threads", type=int, default=1)
         p.add_argument("--draw-embedding", default=None)
+        p.add_argument("--track-chains",  action='store_true')
         return p
 
     def initialize_sampler(self):
@@ -284,6 +319,8 @@ class MinorEmbeddingModule(CompositeAnnealerModule):
             sampler = AutoEmbeddingComposite(sampler, embedding_parameters=embedding_parameters)
             if self.draw_embedding is not None:
                 sampler = DrawEmbeddingWrapper(sampler, self.draw_embedding)
+            if self.track_chains:
+                sampler = EmbeddingSummaryWrapper(sampler, self.embedding_name)
         else:
             emb_kwargs = {}
         self._sampler_kwargs = emb_kwargs
