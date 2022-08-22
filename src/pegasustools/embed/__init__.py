@@ -24,13 +24,16 @@ class VariableMappingComposite(ComposedSampler):
         self._children = [child_sampler]
         self.variable_mapping = variable_mapping
 
+    @property
     def parameters(self) -> typing.Dict[str, typing.Any]:
         param = self.child.parameters.copy()
         return param
 
+    @property
     def properties(self) -> typing.Dict[str, typing.Any]:
         return {'child_properties': self.child.properties.copy()}
 
+    @property
     def children(self):
         return self._children
 

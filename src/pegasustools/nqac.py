@@ -1,6 +1,7 @@
 import numpy as np
 import networkx as nx
 import dimod
+from dwave.preprocessing import ClipComposite
 from dimod import bqm_structured
 from dimod import StructureComposite, Structured, bqm_structured, AdjVectorBQM
 from dimod import BQM
@@ -392,7 +393,8 @@ class PegasusNQACEmbedding(AbstractQACEmbedding):
         return lin, qua
 
     @bqm_structured
-    def sample(self, bqm: BQM, qac_decoding=None, qac_penalty_strength=0.1, qac_problem_scale=1.0, **parameters):
+    def sample(self, bqm: BQM, qac_decoding=None, qac_penalty_strength=0.1, qac_problem_scale=1.0,
+               qac_raw_samples=False, qac_clip=None, **parameters):
         """
 
         :param bqm:
@@ -409,20 +411,27 @@ class PegasusNQACEmbedding(AbstractQACEmbedding):
                                         self.qac_graph.edge_inter_couplers,
                                         self._child_nodes, self._child_edges, qac_penalty_strength)
         sub_bqm = AdjVectorBQM(lin, qua, bqm.offset, bqm.vartype)
+        if qac_clip is not None:
+            child_sampler = ClipComposite(self.child)
+            parameters['lower_bound'] = - qac_clip
+            parameters['upper_bound'] = qac_clip
+        else:
+            child_sampler = self.child
         # submit the problem
-        sampleset: dimod.SampleSet = self.child.sample(sub_bqm, **parameters)
+        sampleset: dimod.SampleSet = child_sampler.sample(sub_bqm, **parameters)
 
-        return self._extract_qac_solutions(sampleset, bqm)
+        return self._extract_qac_solutions(sampleset, bqm, include_raw=qac_raw_samples)
 
-    def _extract_qac_solutions(self, sampleset: dimod.SampleSet, bqm: BQM):
+    def _extract_qac_solutions(self, sampleset: dimod.SampleSet, bqm: BQM, include_raw=False):
         samples, energies, q_ties, q_errs = _decode_all_samples(sampleset, self.qac_graph.node_qubit_map, bqm )
 
         num_occurrences = sampleset.data_vectors['num_occurrences']
         info = sampleset.info
 
         vectors = {}
-        vectors['errors'] = q_errs
-        vectors['ties'] = q_ties
+        if include_raw:
+            vectors['errors'] = q_errs
+            vectors['ties'] = q_ties
         vectors["error_p"] = np.mean(q_errs, -1)
         vectors["tie_p"] = np.mean(q_ties, -1)
         sub_sampleset = dimod.SampleSet.from_samples((samples, bqm.variables), sampleset.vartype, energies,

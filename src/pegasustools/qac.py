@@ -415,6 +415,7 @@ class AbstractQACEmbedding(StructureComposite, PgtStructured):
         self._child_edges = child_edges
         self.qac_graph = qac_graph
 
+    @property
     def networkx_graph(self) -> nx.Graph:
         return self.qac_graph.g
 

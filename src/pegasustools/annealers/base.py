@@ -230,7 +230,6 @@ class AnnealerModuleRunner:
         self.save_df(output, concat_results, aggr_results)
 
     def concat_results(self, aggr_results):
-        concat_info = None
         if 'dataframes' in aggr_results[0].info:
             concat_info = {}
             keys = aggr_results[0].info['dataframes'].keys()
@@ -245,9 +244,12 @@ class AnnealerModuleRunner:
                     dfs, #ignore_index=True,
                     keys=list(range(len(aggr_results))),
                     names=["rep", "idx"])
-        concat_results = concatenate(
-            aggr_results, concat_info={'dataframes': concat_info})
+            concat_results = concatenate(
+                aggr_results, concat_info={'dataframes': concat_info})
+        else:
+            concat_results = concatenate(aggr_results)
         return concat_results
+
 
 class ScaledModule(CompositeAnnealerModule):
     def __init__(self, child_module, scale_j=None, **kwargs):
@@ -269,7 +271,8 @@ class ScaledModule(CompositeAnnealerModule):
     def sampler_kwargs(self, d):
         self.child_module.sampler_kwargs(d)
         if 'auto_scale' in d and self.scale_j is not None:
-            print("Warning: --scale-j is being used with --auto-scale")
+            if d['auto_scale']:
+                print("Warning: --scale-j is being used with --auto-scale")
         d.update(self._sampler_kwargs)
 
     @classmethod
