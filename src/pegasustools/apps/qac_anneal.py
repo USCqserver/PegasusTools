@@ -136,7 +136,8 @@ def main(args=None):
     qac_args = {
         "qac_penalty_strength": args.qac_penalty,
         "qac_problem_scale": args.qac_scale,
-        "qac_decoding": args.qac_mode
+        "qac_decoding": args.qac_mode,
+        "qac_include_raw": args.minor_embed
     }
     sched_kwags = {"anneal_schedule": sched} if sched is not None else {"annealing_time": args.tf}
     dw_kwargs = {"num_spin_reversal_transforms": 1 if args.rand_gauge else 0,

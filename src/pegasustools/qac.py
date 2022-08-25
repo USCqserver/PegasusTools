@@ -439,7 +439,8 @@ class PegasusQACEmbedding(AbstractQACEmbedding):
                                        strict=True)
 
     @bqm_structured
-    def sample(self, bqm: BQM, qac_decoding='qac', qac_penalty_strength=0.1, qac_problem_scale=1.0, **parameters):
+    def sample(self, bqm: BQM, qac_decoding='qac', qac_penalty_strength=0.1, qac_problem_scale=1.0,
+               qac_include_raw=False, **parameters):
         """
 
         :param bqm:
@@ -460,9 +461,9 @@ class PegasusQACEmbedding(AbstractQACEmbedding):
         # submit the problem
         sampleset: dimod.SampleSet = self.child.sample(sub_bqm, **parameters)
 
-        return self._extract_qac_solutions(qac_decoding, sampleset, bqm)
+        return self._extract_qac_solutions(qac_decoding, sampleset, bqm, include_raw=qac_include_raw)
 
-    def _extract_qac_solutions(self, decoding, sampleset: dimod.SampleSet, bqm: BQM):
+    def _extract_qac_solutions(self, decoding, sampleset: dimod.SampleSet, bqm: BQM, include_raw=False):
         q_err = None
         num_occurrences = sampleset.data_vectors['num_occurrences']
         info = sampleset.info
@@ -477,7 +478,8 @@ class PegasusQACEmbedding(AbstractQACEmbedding):
 
         vectors = {}
         if q_err is not None:
-            vectors['errors'] = q_err
+            if include_raw:
+                vectors['errors'] = q_err
             vectors["error_p"] = np.mean(q_err, axis=1)
         sub_sampleset = dimod.SampleSet.from_samples((samples, bqm.variables), sampleset.vartype, energies,
                                                      info=info, num_occurrences=num_occurrences, **vectors)
