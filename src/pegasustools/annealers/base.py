@@ -218,7 +218,8 @@ class AnnealerModuleRunner:
         preview_cols = self.preview_columns
         if preview_cols is None:
             preview_cols = ['energy', 'rep', 'num_occurrences']
-
+        # Preview only columns that exist in the df
+        preview_cols = [c for c in preview_cols if c in lo_df.columns]
         print(lo_df.loc[:, preview_cols])
         num_gs = np.sum(lo.record.num_occurrences)
         total_reads = np.sum(concat_results.record.num_occurrences)

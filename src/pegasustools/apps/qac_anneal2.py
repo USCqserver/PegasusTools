@@ -68,7 +68,9 @@ def main(args=None):
     module = MinorEmbeddingModule(module, **kwargs_dict)
     module = VariableMappingModule(module, **kwargs_dict)
     module = ScaledModule(module, **kwargs_dict)
-    runner = AnnealerModuleRunner(module, **kwargs_dict)
+
+    preview_columns = ['energy', 'error_p', 'tie_p', 'chain_break_fraction', 'rep', 'num_occurrences']
+    runner = AnnealerModuleRunner(module, preview_columns=preview_columns, **kwargs_dict)
     bqm, sampler, results = runner.main()
 
 

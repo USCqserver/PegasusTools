@@ -440,7 +440,7 @@ class PegasusQACEmbedding(AbstractQACEmbedding):
 
     @bqm_structured
     def sample(self, bqm: BQM, qac_decoding='qac', qac_penalty_strength=0.1, qac_problem_scale=1.0,
-               qac_include_raw=False, **parameters):
+               qac_include_raw=False, qac_clip=None, **parameters):
         """
 
         :param bqm:
