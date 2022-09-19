@@ -28,7 +28,7 @@ def lookup_all_edges(node_list, edge_set):
     return [(qi, qj) for (qi, qj) in combinations(node_list, 2) if (qi, qj) in edge_set]
 
 
-def lookup_bipartite_edges(node_list1, node_list2, edge_set, direct_coupling=True, cmp = lambda x,y: x<y,
+def lookup_bipartite_edges(node_list1, node_list2, edge_set, direct_coupling=False, cmp = lambda x,y: x<y,
                            max_edges=2):
     """
     Given a list of nodes, look up all edges between them in the edge set
@@ -47,8 +47,16 @@ def lookup_bipartite_edges(node_list1, node_list2, edge_set, direct_coupling=Tru
                 qi, qj = qj, qi
             if (qi, qj) in edge_set:
                 edges.append((qi, qj))
-        if len(edges) == 0:
-            for (qi, qj) in zip(node_list1, reversed(node_list2)):
+        if len(edges) == 0:  # attempt lower register to upper register couplings
+            n = len(node_list2)
+            for (qi, qj) in zip(node_list1[:n//2], node_list2[n//2:]):
+                if not cmp(qi, qj):
+                    qi, qj = qj, qi
+                if (qi, qj) in edge_set:
+                    edges.append((qi, qj))
+        if len(edges) == 0:  # or upper to lower register
+            n = len(node_list2)
+            for (qi, qj) in zip(node_list1[n//2:], node_list2[:n//2]):
                 if not cmp(qi, qj):
                     qi, qj = qj, qi
                 if (qi, qj) in edge_set:
@@ -69,7 +77,7 @@ def embed_logical_qubits(logical_qubits: Dict[LQ, Iterable[PQ]],
                          edge_set: Set[PJ],
                          accept_qubit_crit=lambda q, lc: len(lc) > 0,
                          accept_coupler_crit=lambda q1, q2, lc: len(lc) > 0,
-                         direct_coupling=True, max_edges=2,
+                         direct_coupling=False, max_edges=2,
                          strict=False
                          ) -> Tuple[Dict[LQ, Iterable[PJ]],
                                     Dict[Tuple[LQ, LQ], Iterable[PJ]]]:
@@ -91,7 +99,11 @@ def embed_logical_qubits(logical_qubits: Dict[LQ, Iterable[PQ]],
     """
     lq_intra_couplers = {}
     for lq, pqs in logical_qubits.items():
-        pq_couplers = lookup_all_edges(pqs, edge_set)
+        n = len(pqs)
+        if direct_coupling:  # Look for independent copies of K2 chains only
+            pq_couplers = lookup_bipartite_edges(pqs[:n//2], pqs[n//2:], edge_set, direct_coupling=True, max_edges=n//2)
+        else:  # Look for all interations among these qubits
+            pq_couplers = lookup_all_edges(pqs, edge_set)
         if accept_qubit_crit(pqs, pq_couplers):
             lq_intra_couplers[lq] = pq_couplers
         else:
@@ -105,8 +117,11 @@ def embed_logical_qubits(logical_qubits: Dict[LQ, Iterable[PQ]],
         if lq1 in lq_intra_couplers and lq2 in lq_intra_couplers:
             pqs1 = logical_qubits[lq1]
             pqs2 = logical_qubits[lq2]
-            couplers_12 = lookup_bipartite_edges(pqs1, pqs2, edge_set,
-                                                 direct_coupling=direct_coupling, max_edges=max_edges)
+            if direct_coupling:
+                couplers_12 = lookup_bipartite_edges(pqs1[::2], pqs2[::2], edge_set, direct_coupling=False)
+                couplers_12 += lookup_bipartite_edges(pqs1[1::2], pqs2[1::2], edge_set, direct_coupling=False)
+            else:
+                couplers_12 = lookup_bipartite_edges(pqs1, pqs2, edge_set)
             if accept_coupler_crit(pqs1, pqs2, couplers_12):
                 lq_inter_couplers[(lq1, lq2)] = np.asarray(couplers_12)
             else:
@@ -222,7 +237,7 @@ def _decode_all_samples(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
 
 
 class PegasusK4NQACGraph(AbstractQACGraph):
-    def __init__(self, m, node_list, edge_list, strict=True, purge_deg1=True):
+    def __init__(self, m, node_list, edge_list, strict=True, k2_mode=False, purge_deg1=True):
         """
          Level 1 Nested QAC graph with K4 embedding
          :param m:
@@ -320,9 +335,17 @@ class PegasusK4NQACGraph(AbstractQACGraph):
             logical_qubit_qpu_map[k] = avail_qubits
         # Determine the physical couplers required to embed the logical graph
         # A subgraph of K4 with at least 3 nodes and 3 edges must be connected, so we accept with this criterion
+        # If the graph is strict, then require all K4 nodes and edges to exist
+        def accept_qubit_crit(q, lc):
+            if k2_mode:
+                return len(lc) >= 2
+            if strict:
+                return len(q) == 4 and len(lc) == 6
+            else:
+                return len(q) >= 3 and len(lc) >= 3
         lq_intra_couplers, lq_inter_couplers = embed_logical_qubits(
-            logical_qubit_map, qac_edges, edge_set, strict=False, direct_coupling=False,
-            accept_qubit_crit=lambda q, lc: len(q) >= 3 and len(lc) >= 3,
+            logical_qubit_map, qac_edges, edge_set, strict=False, direct_coupling=k2_mode,
+            accept_qubit_crit=accept_qubit_crit,
             accept_coupler_crit=lambda q1, q2, lc: len(lc) >= 2
         )
 
@@ -442,12 +465,16 @@ class PegasusNQACEmbedding(AbstractQACEmbedding):
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+    import dwave_networkx as dnx
     from dwave.system import DWaveSampler
 
+    l = 2
+    k2_mode = True
     dws = DWaveSampler()
-    qac_graph = PegasusK4NQACGraph(16, dws.nodelist, dws.edgelist, strict=False)
+
+    qac_graph = PegasusK4NQACGraph(16, dws.nodelist, dws.edgelist, strict=False, k2_mode=k2_mode)
     fig, ax = plt.subplots(figsize=(12, 12))
-    l = 4
+
     sub_qac = qac_graph.subtopol(l)
     n = np.random.randint(0, sub_qac.g.number_of_nodes())
     init_node = list(qac_graph.g.nodes)[n]
@@ -470,4 +497,48 @@ if __name__ == "__main__":
     # Evaluate some statistics
 
     #plt.show()
-    plt.savefig(f"pegasus_k4_nqac_logical_l{l}.pdf")
+    plt.savefig(f"pegasus_k4_nqac_logical_l{l}{'_k2' if k2_mode else ''}.pdf")
+
+    fig, ax = plt.subplots(1, 1, figsize=(30, 30))
+
+    pegasus = dnx.pegasus_graph(16)
+    # dnx.draw_pegasus(pegasus, ax=ax, with_labels=False, node_size=400,
+    #                  node_color=[[0, 0, 0, 0]], edgecolors=[[0, 0, 0, 0]], crosses=True,
+    #                  width=0.0, font_size=9)
+    if k2_mode:
+        for u, v, e in sub_qac.g.edges.data('embedding'):
+            col = 'salmon'
+            nds = qac_graph.node_qubit_map[u] + qac_graph.node_qubit_map[v]
+            n=len(e)
+            e_graph = dnx.pegasus_graph(16, node_list=nds, edge_list=e[:n//2])
+            dnx.draw_pegasus(e_graph, ax=ax, node_color=[[0, 0, 0, 0]], edge_color=col, crosses=True, width=2)
+
+        for u, d in sub_qac.g.nodes.data('embedding'):
+            col = 'steelblue'
+            nds = qac_graph.node_qubit_map[u]
+            gq = dnx.pegasus_graph(16, node_list=nds[::2], edge_list=d)
+            dnx.draw_pegasus(gq, node_size=400, ax=ax, node_color=col, edgecolors='black', edge_color=col, width=2, crosses=True)
+
+            col = 'lightsteelblue'
+            gq = dnx.pegasus_graph(16, node_list=nds[1::2], edge_list=d)
+            dnx.draw_pegasus(gq, node_size=100, ax=ax, node_color=col, edgecolors=col, edge_color=col, width=2,
+                             crosses=True)
+    else:
+        for u, v, e in sub_qac.g.edges.data('embedding'):
+            col = 'salmon'
+            nds = qac_graph.node_qubit_map[u] + qac_graph.node_qubit_map[v]
+            e_graph = dnx.pegasus_graph(16, node_list=nds, edge_list=e)
+            dnx.draw_pegasus(e_graph, ax=ax, node_color=[[0, 0, 0, 0]], edge_color=col, crosses=True, width=2)
+
+        for u, d in sub_qac.g.nodes.data('embedding'):
+            col = 'steelblue'
+            nds = qac_graph.node_qubit_map[u]
+            gq = dnx.pegasus_graph(16, node_list=nds, edge_list=d)
+            dnx.draw_pegasus(gq, node_size=400, ax=ax, node_color=col, edgecolors='black', edge_color=col, width=2,
+                             crosses=True)
+    #
+    # dnx.draw_pegasus(pegasus_3, ax=ax, with_labels=False, node_size=400,
+    #                  node_color=[[0, 0, 0, 0]], edgecolors='black', crosses=True,
+    #                  width=0.0, font_size=9, linewidths=2.0)
+
+    plt.savefig(f"pegasus_k4_nqac_embed_l{l}{'_k2' if k2_mode else ''}.pdf")
