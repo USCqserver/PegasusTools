@@ -146,7 +146,7 @@ class AbstractQACGraph:
         #self.edge_embeddings = None
 
     @classmethod
-    def from_sampler(cls, m, sampler):
+    def from_sampler(cls, m, sampler, **kwargs):
         raise NotImplementedError
 
     @property

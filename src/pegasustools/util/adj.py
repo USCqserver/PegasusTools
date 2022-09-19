@@ -27,6 +27,11 @@ def canonical_order_labels(g: nx.Graph, to_str=True):
 def read_ising_adjacency(filename, max_k=1.0, sep=None, qubo=False):
     """
     Reads a three-column text file specifying the adjacency
+
+    If the adjacency is in qubo format, it is transformed to Ising format
+    via the transformation b = (1 + s)/2 (dimod convention)
+    i.e. b=0  -> s=-1
+         b=1  -> s=+1
     :param filename:
     :return:
     """

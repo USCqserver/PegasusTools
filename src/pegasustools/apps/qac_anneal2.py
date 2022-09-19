@@ -44,7 +44,11 @@ class QACAnnealModule(CompositeAnnealerModule):
             qac_sampler = PegasusQACEmbedding(16, sampler)
             qac_graph = qac_sampler.qac_graph
         elif self.qac_method == "k4":
-            qac_graph = PegasusK4NQACGraph.from_sampler(16, sampler)
+            if self.qac_mode == 'c':
+                k2_mode = True
+            else:
+                k2_mode = False
+            qac_graph = PegasusK4NQACGraph.from_sampler(16, sampler, k2_mode=k2_mode)
             qac_sampler = PegasusNQACEmbedding(16, sampler, qac_graph)
         else:
             raise RuntimeError(f"Invalid method {self.qac_method}")

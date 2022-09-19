@@ -236,6 +236,41 @@ def _decode_all_samples(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
     return decoded_samples, energies, decoding_ties, decoding_errs
 
 
+def _decode_all_k2_samples(sampleset: dimod.SampleSet, qac_map, bqm: BQM):
+    vars = sampleset.variables
+    n_samps = sampleset.record.sample.shape[0]
+    n_logical = bqm.num_variables
+    decoded_samples = np.zeros((2*n_samps, n_logical))
+    decoding_ties = np.zeros((2*n_samps, n_logical))
+
+    for i, v in enumerate(bqm.variables):
+        # logical qubit indices
+        q = qac_map[v]
+        idxs = np.asarray([vars.index(qi) for qi in q])
+        # first chain
+        c1 = idxs[::2]
+        # second chain
+        c2 = idxs[1::2]
+        q1 = sampleset.record.sample[:, c1]  # [nsamples, 2]
+        q2 = sampleset.record.sample[:, c2]
+        ql1 = np.sum(q1, -1)
+        ql2 = np.sum(q2, -1)
+        decoded_samples[:n_samps, i] = np.where(ql1 > 0,  1, -1)  # ising decoding
+        decoded_samples[n_samps:, i] = np.where(ql2 > 0, 1, -1)
+        decoding_ties[:n_samps, i] = (ql1 == 0).astype(int)  # ties
+        decoding_ties[n_samps:, i] = (ql2 == 0).astype(int)
+    # break ties randomly
+    ties = np.nonzero(decoding_ties)
+    # ties = decoding_ties.astype(bool)
+    if len(ties) > 0:
+        r = np.random.randint(0, 2, len(ties[0])) * 2 - 1
+        decoded_samples[ties[0], ties[1]] = r
+
+    energies = bqm.energies((decoded_samples, bqm.variables))
+
+    return decoded_samples, energies, decoding_ties
+
+
 class PegasusK4NQACGraph(AbstractQACGraph):
     def __init__(self, m, node_list, edge_list, strict=True, k2_mode=False, purge_deg1=True):
         """
@@ -373,10 +408,10 @@ class PegasusK4NQACGraph(AbstractQACGraph):
             self.purge_deg1()
 
     @classmethod
-    def from_sampler(cls, m, sampler):
+    def from_sampler(cls, m, sampler, **kwargs):
         nodes = set(sampler.nodelist)
         edges = set(sampler.edgelist)
-        return cls(m, nodes, edges)
+        return cls(m, nodes, edges, **kwargs)
 
     def draw(self, draw_nodes=None, a=60.0, ay=None, lx=0.4, ly=0.35, return_graph=False, **draw_kwargs):
         if 'nodelist' in draw_kwargs:
@@ -421,7 +456,12 @@ class PegasusNQACEmbedding(AbstractQACEmbedding):
         """
 
         :param bqm:
-        :param qac_decoding: 'qac', 'c', or 'all'
+        :param qac_decoding: 'qac' or 'c'
+            Supported for K4 embedding:
+                qac: Decode a K4 unit by majority vote, breaking ties randomly (Default)
+                c: Extract two samples per readout by treating each K4 unit as two independent K2 chains
+
+                The qac_graph must implement all intra- and inter- couplers consistent with either decoding mode
         :param qac_penalty_strength
         :param qac_problem_scale
         :param parameters:
@@ -432,7 +472,8 @@ class PegasusNQACEmbedding(AbstractQACEmbedding):
         lin, qua = try_embed_nqac_graph(bqm.linear, bqm.quadratic, self.qac_graph.node_qubit_map,
                                         self.qac_graph.node_intra_couplers,
                                         self.qac_graph.edge_inter_couplers,
-                                        self._child_nodes, self._child_edges, qac_penalty_strength)
+                                        self._child_nodes, self._child_edges, qac_penalty_strength,
+                                        problem_scale=qac_problem_scale)
         sub_bqm = AdjVectorBQM(lin, qua, bqm.offset, bqm.vartype)
         if qac_clip is not None:
             child_sampler = ClipComposite(self.child)
@@ -442,11 +483,14 @@ class PegasusNQACEmbedding(AbstractQACEmbedding):
             child_sampler = self.child
         # submit the problem
         sampleset: dimod.SampleSet = child_sampler.sample(sub_bqm, **parameters)
-
-        return self._extract_qac_solutions(sampleset, bqm, include_raw=qac_raw_samples)
+        if qac_decoding == 'c':
+            decode_samp = self._extract_k2_solutions(sampleset, bqm, include_raw=qac_raw_samples)
+        else:
+            decode_samp = self._extract_qac_solutions(sampleset, bqm, include_raw=qac_raw_samples)
+        return decode_samp
 
     def _extract_qac_solutions(self, sampleset: dimod.SampleSet, bqm: BQM, include_raw=False):
-        samples, energies, q_ties, q_errs = _decode_all_samples(sampleset, self.qac_graph.node_qubit_map, bqm )
+        samples, energies, q_ties, q_errs = _decode_all_samples(sampleset, self.qac_graph.node_qubit_map, bqm)
 
         num_occurrences = sampleset.data_vectors['num_occurrences']
         info = sampleset.info
@@ -462,6 +506,22 @@ class PegasusNQACEmbedding(AbstractQACEmbedding):
 
         return sub_sampleset
 
+    def _extract_k2_solutions(self, sampleset: dimod.SampleSet, bqm: BQM, include_raw=False):
+        samples, energies, q_ties = _decode_all_k2_samples(sampleset, self.qac_graph.node_qubit_map, bqm)
+
+        num_occurrences = sampleset.data_vectors['num_occurrences']
+        # double up due to two-chain decoding
+        num_occurrences = np.concatenate([num_occurrences, num_occurrences], axis=0)
+        info = sampleset.info
+
+        vectors = {}
+        if include_raw:
+            vectors['ties'] = q_ties
+        vectors["tie_p"] = np.mean(q_ties, -1)
+        sub_sampleset = dimod.SampleSet.from_samples((samples, bqm.variables), sampleset.vartype, energies,
+                                                     info=info, num_occurrences=num_occurrences, **vectors)
+
+        return sub_sampleset
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
