@@ -378,10 +378,17 @@ class PegasusK4NQACGraph(AbstractQACGraph):
                 return len(q) == 4 and len(lc) == 6
             else:
                 return len(q) >= 3 and len(lc) >= 3
+        def accept_coupler_crit(q1, q2, lc):
+            if k2_mode:
+                return len(lc) >= 2
+            if strict:  # Logical couplings must consist of at least 4 physical couplings
+                return len(lc) >= 4
+            else:  # Otherwise, accept coupling with at least 2 physical couplings
+                return len(lc) >= 2
         lq_intra_couplers, lq_inter_couplers = embed_logical_qubits(
             logical_qubit_map, qac_edges, edge_set, strict=False, direct_coupling=k2_mode,
             accept_qubit_crit=accept_qubit_crit,
-            accept_coupler_crit=lambda q1, q2, lc: len(lc) >= 2
+            accept_coupler_crit=accept_coupler_crit
         )
 
         # self.node_embeddings = lq_intra_couplers
