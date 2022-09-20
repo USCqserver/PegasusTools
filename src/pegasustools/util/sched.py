@@ -71,6 +71,13 @@ def args_to_sched(*sched_args):
     nargs = len(sched_args)
     if nargs % 2 != 0:
         raise RuntimeError("Expected even number of points for schedule.")
+    n=nargs//2
+    sched = [[0.0, 0.0]]
+    for i in range(n):
+        sched.append([float(sched_args[2*i]), float(sched_args[2*i+1])])
+    if sched[-1][1] < 1.0:
+        raise RuntimeError("Expected final anneal point to end at s=1")
+    return sched
 
 
 available_schedules = {
@@ -87,8 +94,7 @@ def interpret_schedule(tf, *sched_tokens):
     nargs = len(sched_args)
     try:
         if sched_name == "pl":
-            pnts = args_to_sched(*sched_args)
-            raise NotImplementedError()
+            return args_to_sched(*sched_args)
         elif sched_name == "pr":
             if nargs != 4:
                 raise RuntimeError("Expected four arguments: t1 sp tp tr")
