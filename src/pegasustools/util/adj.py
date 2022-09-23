@@ -24,17 +24,14 @@ def canonical_order_labels(g: nx.Graph, to_str=True):
     return mapping_dict, g2
 
 
-def read_ising_adjacency(filename, max_k=1.0, sep=None, qubo=False):
+def read_problem_adjacency(filename, max_k=1.0, sep=None, qubo=False):
     """
-    Reads a three-column text file specifying the adjacency
+        Reads a three-column text file specifying the adjacency
+        Returns the BQM in the respective ising or qubo format
 
-    If the adjacency is in qubo format, it is transformed to Ising format
-    via the transformation b = (1 + s)/2 (dimod convention)
-    i.e. b=0  -> s=-1
-         b=1  -> s=+1
-    :param filename:
-    :return:
-    """
+        :param filename:
+        :return:
+        """
     linear = {}
     quadratic = {}
 
@@ -56,9 +53,27 @@ def read_ising_adjacency(filename, max_k=1.0, sep=None, qubo=False):
 
     if qubo:
         bqm = AdjVectorBQM.from_qubo(quadratic)
-        bqm = AdjVectorBQM.from_ising(*bqm.to_ising())
     else:
         bqm = AdjVectorBQM.from_ising(linear, quadratic)
+    return bqm
+
+
+def read_ising_adjacency(filename, max_k=1.0, sep=None, qubo=False):
+    """
+    Reads a three-column text file specifying the adjacency
+
+    If the adjacency is in qubo format, it is automatically transformed to Ising format
+    via the transformation b = (1 + s)/2 (dimod convention)
+    i.e. b=0  -> s=-1
+         b=1  -> s=+1
+    :param filename:
+    :return:
+    """
+    bqm = read_problem_adjacency(filename, max_k, sep=sep, qubo=qubo)
+
+    if qubo:
+        bqm = AdjVectorBQM.from_ising(*bqm.to_ising())
+
     return bqm
 
 
