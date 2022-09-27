@@ -209,6 +209,14 @@ def binomial_spin_glass(g: nx.Graph, rng: Generator=None):
     return g2
 
 
+def ferromagnet(g: nx.Graph, j=-1):
+    g2 = nx.Graph()
+    g2.add_nodes_from(g.nodes)
+    g2.add_edges_from(g.edges, weight=j)
+
+    return g2
+
+
 def dilute_bonds(g: nx.Graph, p, rng: Generator=None):
     num_edges = g.number_of_edges()
     if rng is None:
@@ -280,7 +288,7 @@ def main():
     parser.add_argument("topology", type=str, help="Text file specifying graph topology."
                                                    " Ignored if the instance class generates its own graph.")
     parser.add_argument("instance_class",
-                        choices=["fl", "r3", "bsg", "wis", "r1d", "s28", "mis"],
+                        choices=["fm", "fl", "r3", "bsg", "wis", "r1d", "s28", "mis"],
                         help="Instance class to generate")
     parser.add_argument("dest", type=str,
                         help="Save file for the instance specification in Ising adjacency format")
@@ -356,6 +364,22 @@ def main():
         g2 = random_1d_chain(g, n, j, rng=rng)
         # simple ground state energy for 1D chain
         e = (n-1)*np.abs(j)
+        if args.instance_info is not None:
+            props = {"gs_energy": float(e),
+                     "size": n
+                     }
+            with open(args.instance_info, 'w') as f:
+                yaml.safe_dump(props, f, default_flow_style=False)
+        save_ising_instance_graph(g2, args.dest)
+        return
+    elif args.instance_class == "fm":
+        if args.coupling is not None:
+            j = -abs(args.coupling)
+        else:
+            j = -1
+        g2 = ferromagnet(g, j)
+        e = g2.number_of_edges()*np.abs(j)
+        n = g2.number_of_nodes()
         if args.instance_info is not None:
             props = {"gs_energy": float(e),
                      "size": n
