@@ -87,9 +87,10 @@ class DWaveAnnealerModule(AnnealerModuleBase):
         sampler = DWaveSampler()
         dw_kwargs = self.initialize_schedule(sampler)
         dw_kwargs.update({
-            "num_spin_reversal_transforms": 1 if self.rand_gauge else 0,
             "num_reads": self.num_reads,
             "auto_scale": self.auto_scale})
+        if self.rand_gauge:
+            dw_kwargs.update({"num_spin_reversal_transforms": 1})
 
         self._sampler_kwargs = dw_kwargs
         return sampler

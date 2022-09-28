@@ -1,7 +1,7 @@
 import numpy as np
 import networkx as nx
 import dimod
-from dwave.preprocessing import ClipComposite
+from dwave.preprocessing import ClipComposite, SpinReversalTransformComposite
 from dimod import bqm_structured
 from dimod import StructureComposite, Structured, bqm_structured, AdjVectorBQM
 from dimod import BQM
@@ -459,7 +459,7 @@ class PegasusNQACEmbedding(AbstractQACEmbedding):
 
     @bqm_structured
     def sample(self, bqm: BQM, qac_decoding=None, qac_penalty_strength=0.1, qac_problem_scale=1.0,
-               qac_raw_samples=False, qac_clip=None, **parameters):
+               qac_raw_samples=False, qac_clip=None, qac_rand_gauge=False, **parameters):
         """
 
         :param bqm:
@@ -488,6 +488,8 @@ class PegasusNQACEmbedding(AbstractQACEmbedding):
             parameters['upper_bound'] = qac_clip
         else:
             child_sampler = self.child
+        if qac_rand_gauge:
+            child_sampler = SpinReversalTransformComposite(child_sampler)
         # submit the problem
         sampleset: dimod.SampleSet = child_sampler.sample(sub_bqm, **parameters)
         if qac_decoding == 'c':

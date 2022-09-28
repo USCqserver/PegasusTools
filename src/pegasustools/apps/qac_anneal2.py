@@ -1,5 +1,5 @@
 import argparse
-from dwave.preprocessing import ClipComposite
+from dwave.preprocessing import ClipComposite, SpinReversalTransformComposite
 from pegasustools.qac import PegasusQACEmbedding, AbstractQACEmbedding
 from pegasustools.nqac import PegasusNQACEmbedding, PegasusK4NQACGraph
 from pegasustools.annealers.base import CompositeAnnealerModule, DWaveAnnealerModule, ScaledModule, \
@@ -8,13 +8,14 @@ from pegasustools.annealers.base import CompositeAnnealerModule, DWaveAnnealerMo
 
 class QACAnnealModule(CompositeAnnealerModule):
     def __init__(self, child_module, qac_method='qac', qac_penalty=0.1, qac_scale=1.0, qac_mode='qac',
-                           qac_clip=None, **kwargs):
+                           qac_clip=None, qac_rand_gauge=False, **kwargs):
         super(QACAnnealModule, self).__init__(child_module, **kwargs)
         self.qac_method = qac_method
         self.qac_penalty = qac_penalty
         self.qac_scale = qac_scale
         self.qac_mode = qac_mode
         self.qac_clip = abs(qac_clip) if qac_clip is not None else None
+        self.qac_rand_gauge = qac_rand_gauge
 
     @classmethod
     def add_arguments(cls, parser):
@@ -28,9 +29,13 @@ class QACAnnealModule(CompositeAnnealerModule):
         p.add_argument("--qac-clip", type=float,
                        help="Clip the absolute value of the physical couplings after embedding QAC"
                        )
+        p.add_argument("--qac-rand-gauge", action='store_true',
+                       help="Apply a random spin-reversal gauge transformation to the logical problem before embedding into QAC. "
+                       "(Do not mix with -R)")
 
     def initialize_sampler(self) -> AbstractQACEmbedding:
         sampler = self.child_module.initialize_sampler()
+
         if self.verbose:
             print(f"QAC Penalty: {self.qac_penalty}")
             print(f"QAC Problem scale: {self.qac_scale}")
@@ -38,7 +43,8 @@ class QACAnnealModule(CompositeAnnealerModule):
             "qac_penalty_strength": self.qac_penalty,
             "qac_problem_scale": self.qac_scale,
             "qac_decoding": self.qac_mode,
-            "qac_clip": self.qac_clip
+            "qac_clip": self.qac_clip,
+            "qac_rand_gauge": self.qac_rand_gauge
         }
         if self.qac_method == "qac":
             qac_sampler = PegasusQACEmbedding(16, sampler)
