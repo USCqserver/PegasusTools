@@ -44,7 +44,6 @@ class QACAnnealModule(CompositeAnnealerModule):
             "qac_problem_scale": self.qac_scale,
             "qac_decoding": self.qac_mode,
             "qac_clip": self.qac_clip,
-            "qac_rand_gauge": self.qac_rand_gauge
         }
         if self.qac_method == "qac":
             qac_sampler = PegasusQACEmbedding(16, sampler)
@@ -58,7 +57,8 @@ class QACAnnealModule(CompositeAnnealerModule):
             qac_sampler = PegasusNQACEmbedding(16, sampler, qac_graph)
         else:
             raise RuntimeError(f"Invalid method {self.qac_method}")
-
+        if self.qac_rand_gauge:
+            qac_sampler = SpinReversalTransformComposite(qac_sampler)
         self._sampler_kwargs = qac_args
         return qac_sampler
 
