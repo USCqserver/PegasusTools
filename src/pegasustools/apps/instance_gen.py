@@ -180,6 +180,11 @@ def sidon_28(g: nx.Graph, rng: Generator=None):
     return random_spin_glass(g, couplings, rng)
 
 
+def sidon_7(g: nx.Graph, rng: Generator=None):
+    couplings = np.asarray([5, 6, 7])
+    return random_spin_glass(g, couplings, rng)
+
+
 def random_couplings(g: nx.Graph, rng: Generator=None):
     num_edges = g.number_of_edges()
     if rng is None:
@@ -288,7 +293,7 @@ def main():
     parser.add_argument("topology", type=str, help="Text file specifying graph topology."
                                                    " Ignored if the instance class generates its own graph.")
     parser.add_argument("instance_class",
-                        choices=["fm", "fl", "r3", "bsg", "wis", "r1d", "s28", "mis"],
+                        choices=["fm", "fl", "r3", "bsg", "wis", "r1d", "s7", "s28", "mis"],
                         help="Instance class to generate")
     parser.add_argument("dest", type=str,
                         help="Save file for the instance specification in Ising adjacency format")
@@ -396,6 +401,8 @@ def main():
         g2 = binomial_spin_glass(g, rng)
     elif args.instance_class == "s28":
         g2 = sidon_28(g, rng)
+    elif args.instance_class == "s7":
+        g2 = sidon_7(g, rng)
     elif args.instance_class == "mis":
         if args.sub_graph is None:
             raise ValueError("--sub-graph option is required for 'mis' instances")
