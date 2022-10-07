@@ -42,8 +42,42 @@ class DwRes:
             rep_pgs.append(n / m)
         return rep_pgs
 
+    def evaluate_eps_counts(self, normalize=True):
+        #cdfs = []
+        #for _, grp in self.rep_groups:
+        #    df_es = grp.sort_values('energy', ascending=True)
+        df_es = self.dw_res.sort_values('energy', ascending=True)
+        epsilons = df_es['energy'] - self.gs_energy
+        epsilons = np.around(epsilons, decimals=6)
+        ue = np.asarray(np.unique(epsilons))
+        df_es_grp = df_es.groupby(epsilons)
+        counts = np.asarray(df_es_grp["num_occurrences"].sum())
+        cdf = np.cumsum(counts)
+        if normalize:
+            tot = cdf[-1]
+            cdf = np.asarray(cdf, dtype=float) / tot
+
+        assert len(cdf) == len(ue)
+        return cdf, ue
+        #cdfs.append((counts, ue))
+        #return cdfs
+
     def error_p_by_gauge(self):
         return self.rep_groups['error_p'].mean()
+
+
+def dw_results_iter(file_template, l_list, tf_list, idx_list, gs_energies):
+    if len(l_list) != len(tf_list):
+        raise ValueError("Expected L list and tf list to be the same length")
+
+    for i, (l, tf) in enumerate(zip(l_list, tf_list)):
+        for k, n in enumerate(idx_list):
+            try:
+                dw_res = DwRes(file_template.format(l=l, tf=tf, n=n), gs_energy=gs_energies[i, k])
+                yield dw_res
+            except FileNotFoundError as e:
+                print(e)
+                yield None
 
 
 def read_dw_results(file_template, eps_r_list, l_list, tf_list, idx_list, gauges,
@@ -77,4 +111,7 @@ def read_dw_results(file_template, eps_r_list, l_list, tf_list, idx_list, gauges
         return pgs_arr, errp_arr
     else:
         return pgs_arr
+
+
+
 
