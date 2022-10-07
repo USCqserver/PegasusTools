@@ -102,7 +102,11 @@ def read_dw_results(file_template, eps_r_list, l_list, tf_list, idx_list, gauges
     for i, l in enumerate(l_list):
         for j, tf in enumerate(tf_list):
             for k, n in enumerate(idx_list):
-                dw_res = DwRes(file_template.format(l=l, tf=tf, n=n), gs_energy=gs_energies[i, k])
+                try:
+                    dw_res = DwRes(file_template.format(l=l, tf=tf, n=n), gs_energy=gs_energies[i, k])
+                except FileNotFoundError as e:
+                    print(e)
+                    continue
                 pgs_arr[:, i, j, k, :] = dw_res.pgs_by_gauge(reps=eps_r_list)
                 if err_p:
                     errp_arr[i, j, k, :] = dw_res.error_p_by_gauge()
