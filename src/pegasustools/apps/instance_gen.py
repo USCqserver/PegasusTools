@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import ctypes
 import networkx as nx
 import numpy as np
 import pathlib as path
@@ -304,6 +305,9 @@ def main():
                         help="Apply additive bond noise with a standard deviation of DJ.")
     parser.add_argument("--bias-noise", type=float, default=None,
                         help="Apply additive bias noise with a standard deviation of Dh.")
+    parser.add_argument("--seed-noise", action='store_true',
+                        help="Also use the values of --bias-noise and --seed-noise as sources of entropy to "
+                             "seed the RNG. (Avoids correlating disorders of different noise levels)")
     parser.add_argument("--seed", type=int, default=None, nargs='+',
                         help="A manual seed for the RNG")
     parser.add_argument("-n", type=int, default=None,
@@ -467,9 +471,19 @@ def main():
         disorder_save_path = dest_dir / (dest_stem + f'_{i}' + dest_suff)
         save_ising_instance_graph(g2, disorder_save_path)
         # reseed the rng
+        noise_seeds = []
+        # use any additional provided user seeds
         if len(user_seeds) > 0:
-            new_seed = user_seeds.pop(0)
-            sq = np.random.SeedSequence(entropy=(seed, new_seed))
+            noise_seeds.append(user_seeds.pop(0))
+        if args.seed_noise:
+            if args.bond_noise is not None:
+                f = ctypes.c_double(args.bond_noise)
+                noise_seeds.append(ctypes.c_int64.from_address(ctypes.addressof(f)).value)
+            if args.bias_noise is not None:
+                f = ctypes.c_double(args.bias_noise)
+                noise_seeds.append(ctypes.c_int64.from_address(ctypes.addressof(f)).value)
+        if len(noise_seeds) > 0:
+            sq = np.random.SeedSequence(entropy=noise_seeds)
         else:
             print(f"NOTE: Using system entropy")
             sq = np.random.SeedSequence()
