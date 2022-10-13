@@ -2,6 +2,7 @@
 import argparse
 import networkx as nx
 import numpy as np
+import pathlib as path
 import yaml
 from numpy.random import default_rng, Generator
 from pegasustools.util.graph import random_walk_loop, random_walk_chain
@@ -252,6 +253,28 @@ def dilute_nodes(g: nx.Graph, p, rng: Generator=None):
     return g
 
 
+def make_noise(g: nx.Graph, bond_noise=None, bias_noise=None, rng: Generator=None):
+    num_edges = g.number_of_edges()
+    num_nodes = g.number_of_nodes()
+    if rng is None:
+        rng = default_rng()
+    g2 = g.copy()
+    g2.add_nodes_from(g.nodes)
+    g2.add_edges_from(g.edges)
+
+    if bond_noise is not None:
+        rand_eps = rng.normal(0.0, 1.0, [num_edges])
+        for eps, (u, v) in zip(rand_eps, g2.edges):
+            g2.edges[u, v]['weight'] += bond_noise * eps
+
+    if bias_noise is not None:
+        rand_eps = rng.normal(0.0, 1.0, [num_nodes])
+        for eps, n in zip(rand_eps, g.nodes):
+            g2.nodes[n] += bias_noise*eps
+
+    return g2
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Generate a problem instance over an arbitrary graph"
@@ -275,7 +298,13 @@ def main():
                         help="Dilute the nodes by a certain probability.")
     parser.add_argument("--bond-dilution", type=float, default=None,
                         help="Dilute the bonds by a certain probability.")
-    parser.add_argument("--seed", type=int, default=None,
+    parser.add_argument("--noise-disorder", type=int, default=None,
+                        help="Generate noise disorder instances in addition to the noise-free problem instance.")
+    parser.add_argument("--bond-noise", type=float, default=None,
+                        help="Apply additive bond noise with a standard deviation of DJ.")
+    parser.add_argument("--bias-noise", type=float, default=None,
+                        help="Apply additive bias noise with a standard deviation of Dh.")
+    parser.add_argument("--seed", type=int, default=None, nargs='+',
                         help="A manual seed for the RNG")
     parser.add_argument("-n", type=int, default=None,
                         help="Any integer index. Used in addition to the manual RNG seed if specified.")
@@ -301,11 +330,13 @@ def main():
     args = parser.parse_args()
     # Seed the RNG
     if args.seed is not None:
+        user_seeds = list(args.seed)
         if args.n is not None:
-            seed = args.seed ^ args.n
+            seed = user_seeds.pop(0) ^ args.n
         else:
-            seed = args.seed
+            seed = user_seeds.pop(0)
     else:
+        user_seeds = []
         seed = None
     rng = default_rng(seed)
 
@@ -423,7 +454,31 @@ def main():
     if args.bond_dilution is not None:
         g2 = dilute_bonds(g2, args.bond_dilution, rng)
 
+    dest_path = path.Path(args.dest)
+    dest_stem = dest_path.stem
+    dest_suff = dest_path.suffix
+    dest_dir = dest_path.parent
     save_ising_instance_graph(g2, args.dest)
+
+    if args.noise_disorder is not None:
+        n = args.noise_disorder
+        print(f"Generating {n} noise disorder instances.")
+        i = 0
+        disorder_save_path = dest_dir / (dest_stem + f'_{i}' + dest_suff)
+        save_ising_instance_graph(g2, disorder_save_path)
+        # reseed the rng
+        if len(user_seeds) > 0:
+            new_seed = user_seeds.pop(0)
+            sq = np.random.SeedSequence(entropy=(seed, new_seed))
+        else:
+            print(f"NOTE: Using system entropy")
+            sq = np.random.SeedSequence()
+            print(sq.entropy)
+        rng = default_rng(sq)
+        for i in range(1, n+1):
+            disorder_save_path = dest_dir / (dest_stem + f'_{i}' + dest_suff)
+            gr = make_noise(g2, bond_noise=args.bond_noise, bias_noise=args.bias_noise, rng=rng)
+            save_ising_instance_graph(gr, disorder_save_path)
 
 
 if __name__ == "__main__":
