@@ -1,3 +1,5 @@
+import typing
+
 import numpy as np
 import yaml
 from . import tts
@@ -129,4 +131,64 @@ def import_pticm_dat(file_fmt, idxlist, gs_energies, reps=100, r_eps=0.0, eps=1.
         pticm_dict[k] = np.stack(pticm_dict[k], axis=1)
 
     return pticm_dict
+
+
+class TamcThermResults:
+    def __init__(self):
+        self.compression_level = None
+        self.instance_size = None
+        self.beta_arr = None
+        self.samples = None
+        self.e = None
+        self.q = None
+
+
+def read_tamc_bin(file):
+    import struct
+
+    def deserialize_map(buffer, i, fn):
+        n = struct.unpack('q', buffer[i: i + 8])[0]
+        i += 8
+        items = []
+        for _ in range(n):
+            i, x = fn(buffer, i)
+            items.append(x)
+        return i, items
+
+    def deserialize_np_array(buffer, i, dt: np.dtype):
+        n = struct.unpack('q', buffer[i: i+8])[0]
+        dsize = dt.itemsize
+        i += 8
+        nbytes = n*dsize
+        arr = np.frombuffer(buffer[i: i + n*dsize], dtype=dt)
+        return i + n*dsize, arr
+
+    deser_struct = [
+        lambda buffer, i: (i+1, int(buffer[0])),  # compression_level u8
+        lambda buffer, i: (i+8, struct.unpack('q', buffer[i:i+8])[0]),  # instance_size u64
+        lambda buffer, i: deserialize_np_array(buffer, i, np.dtype('<f4')),  # beta_arr Vec<f32>
+        lambda buffer, i: deserialize_map(
+            buffer, i, lambda b2, i2: deserialize_map(
+                b2, i2, lambda b3, i3: deserialize_np_array(b3, i3, np.dtype('u1')))
+                                          ),       # samples: Vec<Vec<Vec<u8>>>
+        lambda buffer, i: deserialize_map(
+            buffer, i, lambda b2, i2: deserialize_np_array(b2, i2, np.dtype('<f4'))
+        ),  # e: Vec<Vec<f32>>
+        lambda buffer, i: deserialize_map(
+            buffer, i, lambda b2, i2: deserialize_np_array(b2, i2, np.dtype('<i4'))
+        ),  # q: Vec<Vec<i32>>,
+    ]
+
+    results = TamcThermResults()
+    with open(file, 'rb') as f:
+        i = 0
+        buf = f.read()
+        i, results.compression_level = deser_struct[0](buf, i)
+        i, results.instance_size = deser_struct[1](buf, i)
+        i, results.beta_arr = deser_struct[2](buf, i)
+        i, results.samples = deser_struct[3](buf, i)
+        i, results.e = deser_struct[4](buf, i)
+        i, results.q = deser_struct[5](buf, i)
+
+    return results
 
