@@ -58,9 +58,27 @@ class DwRes:
             cdf = np.asarray(cdf, dtype=float) / tot
 
         assert len(cdf) == len(ue)
-        return cdf, ue
+        return ue, cdf
         #cdfs.append((counts, ue))
         #return cdfs
+
+    def evaluate_eps_counts_by_rep(self, normalize=True):
+        cdfs = []
+        for _, grp in self.rep_groups:
+            df_es = grp.sort_values('energy', ascending=True)
+            epsilons = df_es['energy'] - self.gs_energy
+            epsilons = np.around(epsilons, decimals=6)
+            ue = np.asarray(np.unique(epsilons))
+            df_es_grp = df_es.groupby(epsilons)
+            counts = np.asarray(df_es_grp["num_occurrences"].sum())
+            cdf = np.cumsum(counts)
+            if normalize:
+                tot = cdf[-1]
+                cdf = np.asarray(cdf, dtype=float) / tot
+
+            assert len(cdf) == len(ue)
+            cdfs.append((ue, cdf))
+        return cdfs
 
     def error_p_by_gauge(self):
         return self.rep_groups['error_p'].mean()
