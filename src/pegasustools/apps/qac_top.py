@@ -37,26 +37,35 @@ def main():
 
     args = parser.parse_args()
 
-    if args.all_qubits:
-        dw_graph: nx.Graph = dnx.pegasus_graph(16)
+    if args.L is not None:
+        l = args.L
+    else:
+        l = 15
+
+    if args.all_qubits:  # Generate an ideal topology
+        dw_graph: nx.Graph = dnx.pegasus_graph(l+1)
         dw_nodes = set(dw_graph.nodes)
         dw_edges = set(dw_graph.edges)
+        if args.qac_method == "qac":
+            qac_graph = PegasusQACGraph(l+1, dw_nodes, dw_edges)
+        elif args.qac_method == "k4":
+            qac_graph = PegasusK4NQACGraph(l+1, dw_nodes, dw_edges)
+        else:
+            raise RuntimeError(f"Invalid method {args.qac_method}")
     else:
         dw_sampler = DWaveSampler()
         dw_nodes = set(dw_sampler.nodelist)
         dw_edges = set(dw_sampler.edgelist)
-    if args.qac_method == "qac":
-        qac_graph = PegasusQACGraph(16, dw_nodes, dw_edges)
-    elif args.qac_method == "k4":
-        qac_graph = PegasusK4NQACGraph(16, dw_nodes, dw_edges)
-    else:
-        raise RuntimeError(f"Invalid method {args.qac_method}")
 
-    if args.L is not None:
-        l = args.L
-        qac_graph = qac_graph.subtopol(args.L)
-    else:
-        l = 15
+        if args.qac_method == "qac":
+            qac_graph = PegasusQACGraph(16, dw_nodes, dw_edges)
+        elif args.qac_method == "k4":
+            qac_graph = PegasusK4NQACGraph(16, dw_nodes, dw_edges)
+        else:
+            raise RuntimeError(f"Invalid method {args.qac_method}")
+    # For real graphs, use sub-topology labeling
+        if args.L is not None:
+            qac_graph = qac_graph.subtopol(args.L)
     g = qac_graph.g.copy()
 
     # create a percolation instance
