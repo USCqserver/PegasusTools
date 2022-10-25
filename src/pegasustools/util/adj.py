@@ -11,7 +11,7 @@ def canonical_order_labels(g: nx.Graph, to_str=True):
     node_labels = {n: i for i, n in enumerate(sorted_nodes)}
 
     g2 = nx.Graph()
-    g2.add_nodes_from(g)
+    g2.add_nodes_from(sorted_nodes)
     g2.add_edges_from(g.edges)
     g2 = nx.relabel_nodes(g2, node_labels)
     if to_str:
