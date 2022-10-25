@@ -48,7 +48,11 @@ def honeycomb_lattice(n, m=None, periodic=False, ladder_bonds=False):
                 if (x < n -2 and y < m-1) or periodic:
                     edge_list.append(((x, y, 0), ((x+2)%n, (y+1)%m, 2)))
                 if (x < n-1) or periodic:
+                    edge_list.append(((x, y, 2), ((x+1)%n, y, 0)))
+                if (x < n-1) or periodic:
                     edge_list.append(((x, y, 1), ((x+1)%n, y, 3)))
+                if (x < n-2 and y > 1) or periodic:
+                    edge_list.append(((x, y, 3), ((x+2)%n, (y-1)%m, 1)))
 
     g = nx.Graph()
     g.add_nodes_from(node_list)
