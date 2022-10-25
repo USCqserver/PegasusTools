@@ -51,7 +51,8 @@ setup(
             'pgt-qac = pegasustools.apps.qac_anneal:main',
             'pgt-qac-2 = pegasustools.apps.qac_anneal2:main',
             'pgt-qac-chain = pegasustools.apps.qac_chain:main',
-            'pgt-qac-top = pegasustools.apps.qac_top:main'
+            'pgt-qac-top = pegasustools.apps.qac_top:main',
+            'pgt-topol-gen = pegasustools.apps.topol_gen:main'
         ]
     },
     ext_modules=cythonize(extensions, annotate=True),
