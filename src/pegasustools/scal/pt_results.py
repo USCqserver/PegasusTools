@@ -141,9 +141,10 @@ class TamcThermResults:
         self.samples = None
         self.e = None
         self.q = None
+        self.suscept = None
 
 
-def read_tamc_bin(file):
+def read_tamc_bin(file, version=1):
     import struct
 
     def deserialize_map(buffer, i, fn):
@@ -178,6 +179,13 @@ def read_tamc_bin(file):
             buffer, i, lambda b2, i2: deserialize_np_array(b2, i2, np.dtype('<i4'))
         ),  # q: Vec<Vec<i32>>,
     ]
+    if version == 1:
+        deser_struct += [
+            lambda buffer, i: deserialize_map(
+            buffer, i, lambda b2, i2: deserialize_map(
+                b2, i2, lambda b3, i3: deserialize_np_array(b3, i3, np.dtype('f4')))
+                                          ),       # samples: Vec<Vec<Vec<f32>>>
+        ]
 
     results = TamcThermResults()
     with open(file, 'rb') as f:
@@ -189,6 +197,7 @@ def read_tamc_bin(file):
         i, results.samples = deser_struct[3](buf, i)
         i, results.e = deser_struct[4](buf, i)
         i, results.q = deser_struct[5](buf, i)
-
+        if version==1:
+            i, results.suscept = deser_struct[6](buf, i)
     return results
 
