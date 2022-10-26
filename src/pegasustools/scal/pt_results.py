@@ -143,6 +143,26 @@ class TamcThermResults:
         self.q = None
         self.suscept = None
 
+    def avg_suscept(self, idxs):
+        """
+        Evaluates the average susceptibility of the components in idxs.
+        The measurements suscept are the normalized (graph) Fourier transforms
+        of the overlap
+                K_j  = \sum_i w_i q_i
+                where \sum_i w_i^2 = \sqrt{N}
+        The susceptibility returned is
+                Chi = \sum_{j\in idxs} |K_j|^2
+        :param idxs:
+        :return:
+        """
+        nT = len(self.suscept)
+        nsamps = len(self.suscept[0][0])
+        chi_arr = np.zeros((nT, nsamps))
+        for ti in range(nT):
+            for i in idxs:
+                chi_arr[ti, :] += self.suscept[ti][i]**2
+        return chi_arr
+
 
 def read_tamc_bin(file, version=1):
     import struct
