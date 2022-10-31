@@ -67,21 +67,21 @@ def rbr_schedule(tr, tf, sr, a, b, sq, sc=0.9, lin_pnts=3, log_pnts=4):
     return sched
 
 
-def args_to_sched(*sched_args):
+def args_to_sched(tf, *sched_args):
     nargs = len(sched_args)
     if nargs % 2 != 0:
         raise RuntimeError("Expected even number of points for schedule.")
     n=nargs//2
     sched = [[0.0, 0.0]]
     for i in range(n):
-        sched.append([float(sched_args[2*i]), float(sched_args[2*i+1])])
+        sched.append([tf*float(sched_args[2*i]), float(sched_args[2*i+1])])
     if sched[-1][1] < 1.0:
         raise RuntimeError("Expected final anneal point to end at s=1")
     return sched
 
 
 available_schedules = {
-    'pl': ("Piecewise Linear", "t0 s0 t1 s1 ..."),
+    'pl': ("Piecewise Linear", "tf t0 s0 t1 s1 ..."),
     'pr': ("Pause and ramp", "t1 sp tp tr"),
     'beta': ("Ramped beta schedule (Boundary cancellation protocol)", "a b sq [sc]"),
     'rbr': ("Ramp/Reverse Anneal (with BCP)/Ramp sequence", "tr sr a b sq")
