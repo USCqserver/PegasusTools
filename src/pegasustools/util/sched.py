@@ -81,7 +81,7 @@ def args_to_sched(tf, *sched_args):
 
 
 available_schedules = {
-    'pl': ("Piecewise Linear", "tf t0 s0 t1 s1 ..."),
+    'pl': ("Piecewise Linear", "t0 s0 t1 s1 ..."),
     'pr': ("Pause and ramp", "t1 sp tp tr"),
     'beta': ("Ramped beta schedule (Boundary cancellation protocol)", "a b sq [sc]"),
     'rbr': ("Ramp/Reverse Anneal (with BCP)/Ramp sequence", "tr sr a b sq")
@@ -94,7 +94,7 @@ def interpret_schedule(tf, *sched_tokens):
     nargs = len(sched_args)
     try:
         if sched_name == "pl":
-            return args_to_sched(*sched_args)
+            return args_to_sched(tf, *sched_args)
         elif sched_name == "pr":
             if nargs != 4:
                 raise RuntimeError("Expected four arguments: t1 sp tp tr")
