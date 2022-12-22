@@ -1,5 +1,9 @@
+from collections import namedtuple
+
 import numpy as np
 import scipy.stats as stats
+
+from pegasustools.scal import tts
 
 
 def not_nan(x):
@@ -156,3 +160,19 @@ def pgs_bootstrap(pgs_arr, nsamps, boot_samps):
     boots_samp = np.sum(pgs_samp * dir_samp, axis=-1)  # [..., boot_samps]
 
     return boots_samp
+
+
+
+TTSStatistics = namedtuple("TTS", "median err inf_frac")
+
+def eval_pgs_tts(pgs_array, tf_list, samps_per_gauge, nboots=200):
+    log_tts_boots = np.log10(
+        tts(pgs_bootstrap(pgs_array, samps_per_gauge, nboots),
+        np.reshape(tf_list, [-1, 1, 1]),
+        eps=0.0)
+    )
+    log_med, log_med_err, log_med_inf = reduce_mean(
+        boots_percentile(np.swapaxes(log_tts_boots, -2, -1), 0.5),
+        ignore_inf=True
+    )
+    return TTSStatistics(log_med, log_med_err, log_med_inf)

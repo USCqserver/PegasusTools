@@ -1,5 +1,5 @@
 import numpy as np
-
+from collections import namedtuple
 
 def tts(pgs, tf, eps=1.0e-6):
     y=1.0-pgs
@@ -9,3 +9,4 @@ def tts(pgs, tf, eps=1.0e-6):
     ttsarr = tf * np.log(0.01)/z
     ttsarr = np.where(isnz, ttsarr, np.inf)
     return ttsarr
+
