@@ -223,7 +223,7 @@ def read_dw_results3(file_template, eps_list, l_list, tf_list, idx_list, gauges,
         instance_size = None
         for j, tf in enumerate(tf_list):
             for k, n in enumerate(idx_list):
-                filestr=file_template.format(l=l, tf=tf, n=n)
+                filestr=file_template.format(l=l, tf=tf, n=n, *fmt_kwargs)
                 try:
                     dw_res = DwRes(filestr, gs_energy=gs_energies[i, k])
                 except (FileNotFoundError, KeyError) as e:
