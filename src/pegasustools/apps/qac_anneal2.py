@@ -1,5 +1,6 @@
 import argparse
 from dwave.preprocessing import ClipComposite, SpinReversalTransformComposite
+from dwave.system import DWaveCliqueSampler
 from pegasustools.qac import PegasusQACEmbedding, AbstractQACEmbedding
 from pegasustools.nqac import PegasusNQACEmbedding, PegasusK4NQACGraph
 from pegasustools.annealers.base import CompositeAnnealerModule, DWaveAnnealerModule, ScaledModule, \
