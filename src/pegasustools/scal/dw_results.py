@@ -291,7 +291,7 @@ class DWaveInstanceResults:
         self.idxlist = idxlist
         # try to automatically determine number of gauges or samples per gauge
         if gauges is None or samps_per_gauge is None:
-            filestr = path_fmt.format(l=llist[0], tf=tflist[0], n=idxlist[0])
+            filestr = path_fmt.format(l=llist[0], tf=tflist[0], n=idxlist[0], *fmt_kwargs)
             dw_res = DwRes(filestr, gs_energy=gs_energies[0, 0])
             if gauges is None:
                 gauges = dw_res.num_gauges()
