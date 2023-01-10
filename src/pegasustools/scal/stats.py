@@ -114,7 +114,7 @@ def reduce_median(x):
     return mdmean, mdstd
 
 
-def boots_percentile(x, p, n_boots=None):
+def boots_percentile(x, p, n_boots=None, random_state=None):
     """
     Evaluates the percentile of the last dimension of x with where
     the second-to-last dimension is an existing bootstrap dimension
@@ -131,7 +131,7 @@ def boots_percentile(x, p, n_boots=None):
 
     # n_boots samples from the dirichlet distribution
     alpha = np.full(n, 1)
-    dir_samp = stats.dirichlet.rvs(alpha, size=pre_dims * boots_dim)  # [size, n]
+    dir_samp = stats.dirichlet.rvs(alpha, size=pre_dims * boots_dim, random_state=random_state)  # [size, n]
     dir_samp = np.reshape(dir_samp, list(x.shape[:-2]) + [boots_dim, n])  # [..., n_boots, n]
     perc = par_weighted_quantiles(x, p, dir_samp)  # [..., n_boots]
     # evaluate if all finite
@@ -162,8 +162,29 @@ def pgs_bootstrap(pgs_arr, nsamps, boot_samps):
     return boots_samp
 
 
+class TTSStatistics:
+    def __init__(self, mean, err, inf_frac=None, l_list=None):
+        self.mean = mean
+        self.err = err
+        self.inf_frac = inf_frac
+        self.l_list = np.asarray(l_list)
 
-TTSStatistics = namedtuple("TTS", "median err inf_frac")
+    def save_npz(self, file):
+        np.savez(file, L=np.asarray(self.l_list),
+                 log_tts_mean=self.mean,
+                 log_tts_err=self.err)
+
+    @staticmethod
+    def load_npz(file):
+        dat = np.load(file)
+        ttss = TTSStatistics(dat['mean'], dat['err'])
+        if 'l_list' in dat:
+            ttss.l_list = dat['l_list']
+        if 'inf_frac' in dat:
+            ttss.inf_frac = dat['inf_frac']
+        return ttss
+
+#TTSStatistics = namedtuple("TTSStatistics", "median err inf_frac")
 
 def eval_pgs_tts(pgs_array, tf_list, samps_per_gauge, nboots=200):
     log_tts_boots = np.log10(
