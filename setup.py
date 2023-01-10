@@ -53,6 +53,7 @@ setup(
             'pgt-qac-chain = pegasustools.apps.qac_chain:main',
             'pgt-qac-top = pegasustools.apps.qac_top:main',
             'pgt-topol-gen = pegasustools.apps.topol_gen:main',
+            'pgt-analysis = pegasustools.apps.analysis:main',
             'pgt-dw-topol-gen = pegasustools.apps.dw_topol_gen:main'
         ]
     },
