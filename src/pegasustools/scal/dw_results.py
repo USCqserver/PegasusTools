@@ -316,12 +316,9 @@ class DWaveInstanceResults:
 
     def load(self):
         if self.success_probs is None:
-            if self.relative:
-                _read_dwres = read_dw_results2(self.path_fmt, self.epsilons, self.llist, self.tflist,
-                                                      self.idxlist, self.gauges, self.gs_energies, self.qac)
-            else:
-                _read_dwres = read_dw_results3(self.path_fmt, self.epsilons, self.llist, self.tflist,
-                                               self.idxlist, self.gauges, self.gs_energies, self.qac)
+            _read_dwres = read_dw_results3(self.path_fmt, self.epsilons, self.llist, self.tflist,
+                                           self.idxlist, self.gauges, self.gs_energies, self.qac, relative_eps=self.relative,
+                                           fmt_kwargs=self.fmt_kwargs)
             if self.qac:
                 self.success_probs, self.qac_error_probs = _read_dwres
             else:
