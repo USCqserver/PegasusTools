@@ -223,7 +223,7 @@ def read_dw_results3(file_template, eps_list, l_list, tf_list, idx_list, gauges,
         instance_size = None
         for j, tf in enumerate(tf_list):
             for k, n in enumerate(idx_list):
-                filestr=file_template.format(l=l, tf=tf, n=n, *fmt_kwargs)
+                filestr=file_template.format(l=l, tf=tf, n=n, **fmt_kwargs)
                 try:
                     dw_res = DwRes(filestr, gs_energy=gs_energies[i, k])
                 except (FileNotFoundError, KeyError) as e:
@@ -291,7 +291,7 @@ class DWaveInstanceResults:
         self.idxlist = idxlist
         # try to automatically determine number of gauges or samples per gauge
         if gauges is None or samps_per_gauge is None:
-            filestr = path_fmt.format(l=llist[0], tf=tflist[0], n=idxlist[0], *fmt_kwargs)
+            filestr = path_fmt.format(l=llist[0], tf=tflist[0], n=idxlist[0], **fmt_kwargs)
             dw_res = DwRes(filestr, gs_energy=gs_energies[0, 0])
             if gauges is None:
                 gauges = dw_res.num_gauges()
