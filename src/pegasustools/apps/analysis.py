@@ -208,13 +208,13 @@ class DWMethod(PGTMethodBase):
     def tts_analysis(self, instance_sizes, i=None, q=0.5, rng=None, scaling_start=-5, **kwargs):
         tts_statistics, opt_hparams = self.tts_quantile_opt(i=i, q=q, rng=rng)
 
-        fig = plt.figure(figsize=(7, 7))
+        fig = plt.figure(figsize=(8.5, 8.5))
         ax = plt.subplot()
         self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax, **kwargs)
 
         plt.xlabel('$\\log_{10} N$')
         plt.ylabel('$\\log_{10}$ TTE ($\\mu s$)')
-        plt.legend(loc='upper left', ncol=2)
+        plt.legend(loc='lower left', ncol=2)
         plt.savefig(self.out_dir / f"dw_{self.name}_q{q:4.3f}_tts_scaling.pdf")
 
 
@@ -269,7 +269,7 @@ class MCMethod(PGTMethodBase):
                      scaling_start=-5, **kwargs):
         tts_statistics = self.tts_quantile(nboots, q=q, rng=rng)
 
-        fig = plt.figure(figsize=(7, 7))
+        fig = plt.figure(figsize=(8.5, 8.5))
         ax = plt.subplot()
         self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax, **kwargs)
 
@@ -405,14 +405,14 @@ class PGTScalingAnalysis:
                     speedup_array = ref_boots_samps - target_boot_opt
                     target.boots_samples.append(speedup_array)
                     tts_statistics = target.tts_quantile(i=-1, q=0.5, rng=self.rng)
-                    fig = plt.figure(figsize=(7, 7))
+                    fig = plt.figure(figsize=(8.5, 8.5))
                     ax = plt.subplot()
                     _, loglinres = target.plot_tts_analysis(tts_statistics, self.instance_sizes,
                                                             scaling_start=-5, ax=ax, plot_epsilons=self.plot_epsilons)
 
                     plt.xlabel('$\\log_{10} N$')
                     plt.ylabel('$\\log_{10} \\mathrm{Speedup} $')
-                    plt.legend(loc='upper left', ncol=2)
+                    plt.legend(loc='lower left', ncol=2)
                     plt.savefig(self.out_dir / f"speedup_{name}_q{0.5:4.3f}.pdf")
                     target.boots_samples.pop(-1)
                 else:
