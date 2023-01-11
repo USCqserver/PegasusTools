@@ -319,18 +319,18 @@ class TimeToSolutionPT:
         self.cross_idx = pticm_dict['cross_idx']
 
 
-def eval_boots_log_tts(pticm_tts: dict, l_list, n_boots=100, random_state=None):
+def eval_boots_log_tts(pticm_tts: dict, l_list, q=0.5, n_boots=100, random_state=None):
     pticm_tts_log_med_lst = []
     pticm_tts_log_med_err_lst = []
     for l in l_list:
         opt_tts_arr = pticm_tts[l]['opt_tts'][:, np.newaxis, :]
         ttsl, ttslerr = reduce_mean(
-            boots_percentile(np.log10(opt_tts_arr), 0.5,
-                             n_boots=n_boots, random_state=random_state))
+            boots_percentile(np.log10(opt_tts_arr), q,
+                             n_boots=n_boots, rng=random_state))
         pticm_tts_log_med_lst.append(ttsl)
         pticm_tts_log_med_err_lst.append(ttslerr)
-    pticm_tts_log_med = np.stack(pticm_tts_log_med_lst)
-    pticm_tts_log_med_err = np.stack(pticm_tts_log_med_err_lst)
+    pticm_tts_log_med = np.stack(pticm_tts_log_med_lst, axis=-1)
+    pticm_tts_log_med_err = np.stack(pticm_tts_log_med_err_lst, axis=-1)
 
     return TTSStatistics(pticm_tts_log_med, pticm_tts_log_med_err, None, l_list=l_list)
 
