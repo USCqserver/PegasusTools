@@ -44,7 +44,7 @@ plt.rcParams['text.latex.preamble']= \
 rc('text', usetex=True)
 
 class PGTMethodBase:
-    def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg):
+    def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg, rhos=None):
         self.name = name
         self.directory = method_cfg['directory']
         self.file_pattern = method_cfg['file_pattern']
@@ -52,21 +52,25 @@ class PGTMethodBase:
         self.llist = llist
         self.idxlist = idxlist
         self.gs_energies = gs_energies
+        self.rhos = rhos
         self.rho_or_eps = rho_or_eps
         self.relative_epsilon = relative
         self.global_cfg = global_cfg
 
-    def plot_tts_analysis(self, tts_statistics: TTSStatistics, instance_sizes, scaling_start=-5, ax=None):
+    def plot_tts_analysis(self, tts_statistics: TTSStatistics, instance_sizes, scaling_start=-5, ax=None,
+                          plot_epsilons=None):
+        if plot_epsilons is None:
+            plot_epsilons = list(range(len(self.rho_or_eps)))
         loglinres= [stats.linregress(np.log10(instance_sizes[scaling_start:]),
                                       tts_statistics.mean[i, scaling_start:])
-                     for i in range(len(self.rho_or_eps))]
+                     for i in plot_epsilons]
         if ax is None:
             fig = plt.gcf()
             ax = fig.gca()
-        for i in range(len(self.rho_or_eps)):
+        for i in plot_epsilons:
             eps = self.rho_or_eps[i]
             if self.relative_epsilon:
-                label = f"$\\rho={eps * 100:3.2f}\%$"
+                label = f"$\\rho={self.rhos[i] * 100:3.2f}\%$"
             else:
                 label = f"$\\varepsilon={eps}$"
             x = np.log10(instance_sizes)
@@ -92,8 +96,10 @@ class PGTMethodBase:
 
 
 class DWMethod(PGTMethodBase):
-    def __init__(self, name, method_cfg: dict, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg):
-        super(DWMethod, self).__init__(name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg)
+    def __init__(self, name, method_cfg: dict, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg,
+                 rhos=None):
+        super(DWMethod, self).__init__(name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg,
+                                       rhos=rhos)
 
         method_cfg.pop('directory')  # self.directory
         method_cfg.pop('file_pattern')  # self.file_pattern
@@ -199,12 +205,12 @@ class DWMethod(PGTMethodBase):
 
         return TTSStatistics(opt_tts, opt_tts_err, opt_tts_inf_frac, self.llist, tflist=opt_tts_tf), opt_hparams
 
-    def tts_analysis(self, instance_sizes, i=None, q=0.5, rng=None, scaling_start=-5):
+    def tts_analysis(self, instance_sizes, i=None, q=0.5, rng=None, scaling_start=-5, **kwargs):
         tts_statistics, opt_hparams = self.tts_quantile_opt(i=i, q=q, rng=rng)
 
         fig = plt.figure(figsize=(7, 7))
         ax = plt.subplot()
-        self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax)
+        self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax, **kwargs)
 
         plt.xlabel('$\\log_{10} N$')
         plt.ylabel('$\\log_{10}$ TTE ($\\mu s$)')
@@ -213,9 +219,9 @@ class DWMethod(PGTMethodBase):
 
 
 class MCMethod(PGTMethodBase):
-    def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg):
+    def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg, rhos=None):
         super(MCMethod, self).__init__(name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative,
-                                       global_cfg)
+                                       global_cfg, rhos=rhos)
 
         out_dir = Path(global_cfg['out_dir'])
         self.out_dir = out_dir
@@ -260,12 +266,12 @@ class MCMethod(PGTMethodBase):
         return pticm_tts_statistics
 
     def tts_analysis(self, instance_sizes, nboots, q=0.5, rng: np.random.Generator = None,
-                     scaling_start=-5):
+                     scaling_start=-5, **kwargs):
         tts_statistics = self.tts_quantile(nboots, q=q, rng=rng)
 
         fig = plt.figure(figsize=(7, 7))
         ax = plt.subplot()
-        self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax)
+        self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax, **kwargs)
 
         plt.xlabel('$\\log_{10} N$')
         plt.ylabel('$\\log_{10}$ TTE ($\\mu s$)')
@@ -306,11 +312,13 @@ class PGTScalingAnalysis:
         # relative epsilons are scaled by J * instance_size
         if self.relative_epsilon:
             self.rho_or_eps = self.epsilon_arr * self.J
+            self.rhos = self.epsilon_arr
             logging.info(f"Using relative epsilons:\n{self.rho_or_eps}")
         else:
             self.rho_or_eps = self.epsilon_arr
+            self.rhos = None
             logging.info(f"Using absolute epsilons:\n{self.rho_or_eps}")
-
+        self.plot_epsilons = cfg.get('plot_epsilons', None)
         # Initialize RNG and bootstrap data
         self.rand_seed = cfg.get('random_seed', 0)
         if self.rand_seed is None or self.rand_seed == 0:
@@ -350,7 +358,7 @@ class PGTScalingAnalysis:
         self.mc_samplers = {}
         for k, v in mc_samplers.items():
             self.mc_samplers[k] = MCMethod(k, v, self.gs_energies, self.llist, self.idxlist, self.rho_or_eps,
-                                             self.relative_epsilon, self.cfg)
+                                             self.relative_epsilon, self.cfg, rhos=self.rhos)
 
     def load_dw_sampler_data(self):
         # Read the quantum samplers configurations
@@ -358,7 +366,7 @@ class PGTScalingAnalysis:
         self.dw_samplers = {}
         for k, v in dw_samplers.items():
             self.dw_samplers[k] = DWMethod(k, v, self.gs_energies, self.llist, self.idxlist, self.rho_or_eps,
-                                             self.relative_epsilon, self.cfg)
+                                             self.relative_epsilon, self.cfg, rhos=self.rhos)
 
     def draw_bootstrap_samples(self):
         for s in self.dw_samplers.values():
@@ -368,10 +376,10 @@ class PGTScalingAnalysis:
         logging.info("Writing TTS analysis ... ")
         for s in self.mc_samplers.values():
             logging.info(f"{s.name}")
-            s.tts_analysis(self.instance_sizes, self.n_boots, q=0.5, rng=self.rng, scaling_start=-5)
+            s.tts_analysis(self.instance_sizes, self.n_boots, q=0.5, rng=self.rng, scaling_start=-5, plot_epsilons=self.plot_epsilons)
         for s in self.dw_samplers.values():
             logging.info(f"{s.name}")
-            s.tts_analysis(self.instance_sizes, q=0.5, rng=self.rng, scaling_start=-5)
+            s.tts_analysis(self.instance_sizes, q=0.5, rng=self.rng, scaling_start=-5, plot_epsilons=self.plot_epsilons)
 
     def speedup_analysis(self):
         speedup_jobs = self.cfg.get('speedup_analysis', {})
@@ -399,7 +407,8 @@ class PGTScalingAnalysis:
                     tts_statistics = target.tts_quantile(i=-1, q=0.5, rng=self.rng)
                     fig = plt.figure(figsize=(7, 7))
                     ax = plt.subplot()
-                    _, loglinres = target.plot_tts_analysis(tts_statistics, self.instance_sizes, scaling_start=-5, ax=ax)
+                    _, loglinres = target.plot_tts_analysis(tts_statistics, self.instance_sizes,
+                                                            scaling_start=-5, ax=ax, plot_epsilons=self.plot_epsilons)
 
                     plt.xlabel('$\\log_{10} N$')
                     plt.ylabel('$\\log_{10} \\mathrm{Speedup} $')
