@@ -3,6 +3,7 @@ import dwave_networkx as dnx
 import matplotlib.pyplot as plt
 import networkx as nx
 import json
+import pathlib as path
 from pegasustools.qac import PegasusQACEmbedding, PegasusQACGraph
 from pegasustools.nqac import PegasusK4NQACGraph
 from pegasustools.util.adj import save_graph_adjacency, save_ising_instance_graph, read_ising_adjacency_graph, \
@@ -32,6 +33,9 @@ def main():
                         help="Optionally, write a percolation instance to this file."
                         "All couplings are ferromagnetic, the top qubits of the graph are marked with a +1 bias "
                         "and the bottom qubits are marked with a -1 bias")
+    parser.add_argument("--local-partition", type=int, default=None,
+                        help="Partition the QAC topology into K x K disjoint subgraphs.")
+    parser.add_argument("--")
     parser.add_argument("dest", type=str,
                         help="Save file for the QAC topology in text adjacency list format")
 
@@ -86,6 +90,26 @@ def main():
     nx.set_node_attributes(g2, mapping_dict['labels_to_nodes'], "qubit")
     # Save the integer label adjacency list in plain text
     save_graph_adjacency(g2, args.dest)
+
+    if args.local_partition is not None:
+        k = args.local_partition
+        if (l%k) != 0:
+            raise RuntimeError(f"--local-partition {k} does not divide {l}")
+        l0 = l // k
+        partition = [ [] for _ in range(k*k)]
+        for n in g.nodes:
+            ix, iy = n[1], n[2]
+            px, py = ix // l0, iy // l0
+            ip = px + k * py
+            node_idx = mapping_dict['nodes_to_labels'][str(n)]
+            partition[ip].append(node_idx)
+        for p in partition:
+            p.sort()
+        save_path = path.Path(args.dest)
+        save_path = save_path.with_name(save_path.stem+'_part.txt')
+        with open(save_path, 'w') as f:
+            for p in partition:
+                f.write(' '.join([str(i) for i in p]) + '\n')
 
     if args.percolation is not None:
         save_ising_instance_graph(g2, args.percolation)
