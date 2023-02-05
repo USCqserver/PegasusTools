@@ -204,6 +204,9 @@ class TTSStatistics:
                  log_tts_mean=self.mean,
                  log_tts_err=self.err)
 
+    def __getitem__(self, idx):
+        return TTSStatistics(self.mean[idx], self.err[idx], self.inf_frac[idx], self.l_list, self.tflist)
+
     @staticmethod
     def load_npz(file):
         dat = np.load(file)
