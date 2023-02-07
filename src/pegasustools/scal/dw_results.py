@@ -1,3 +1,5 @@
+import pickle
+
 import numpy as np
 import pandas as pd
 import yaml
@@ -246,6 +248,63 @@ def read_dw_results3(file_template, eps_list, l_list, tf_list, idx_list, gauges,
         return pgs_arr
 
 
+def read_sa_results(file_templates, eps_list, l_list, tf_list, idx_list,
+                    gs_energies, relative_eps=False, tol=1.0e-4, fmt_kwargs=None):
+    """
+
+    :param file_template:  tuple of formattables string including {l}, {n}, and {tf}
+    :param eps_r_list:  List of eps_r values to evaluate TTE
+    :param l_list:    List of system sizes
+    :param tf_list:   List of anneal times
+    :param idx_list:   Indices of instances
+    :param gs_energies: [L, Instances] array of ground state energies
+    :return:
+    """
+
+    if fmt_kwargs is None:
+        fmt_kwargs = {}
+
+    pgs_arr = np.zeros((len(eps_list), len(l_list), len(tf_list), len(idx_list)))
+    timing_arr = np.zeros((len(l_list), len(tf_list), len(idx_list)))
+    eps_arr = np.asarray(eps_list)
+    for i, l in enumerate(l_list):
+        instance_size = None
+        for j, tf in enumerate(tf_list):
+            for k, n in enumerate(idx_list):
+                min_filestr = file_templates[0].format(l=l, tf=tf, n=n, **fmt_kwargs)
+                samps_filestr = file_templates[1].format(l=l, tf=tf, n=n, **fmt_kwargs)
+
+                try:
+                    with open(min_filestr) as f:
+                        min_results = pickle.load(f)
+                except (FileNotFoundError, KeyError) as e:
+                    print(f" ** Failed to read SA results from {min_filestr}")
+                    print(e)
+                    continue
+                gs_energy = gs_energies[i, k]
+                energies = min_results['energies']
+                timing = min_results['timing']
+
+                if relative_eps and instance_size is None:
+                    with open(samps_filestr) as f:
+                        samp_results = pickle.load(f)
+                    instance_size = samp_results['instance_size']
+                    del samp_results
+
+                if relative_eps:
+                    tgt_eps_arr = eps_arr * instance_size
+                else:
+                    tgt_eps_arr = eps_arr
+                num_replicas = len(energies)
+                # reshape to [num_replicas, num_epsilons]
+                reached_energy = (energies[:, np.newaxis] <= gs_energy[:, np.newaxis] + tgt_eps_arr[np.newaxis, :] + tol)
+                pgs = np.sum(reached_energy, axis=0) / num_replicas
+                pgs_arr[:, i, j, k] = pgs[:]
+                timing_arr[i, j, k] = timing
+
+    return pgs_arr, timing_arr
+
+
 class DWSuccessProbs:
     def __init__(self, pgs_arr, tflist, samps_per_gauge):
         # Raw success probabilities
@@ -325,5 +384,4 @@ class DWaveInstanceResults:
                 self.success_probs = _read_dwres
 
             # self.tts_array = eval_pgs_tts(self.success_probs, self.tflist, self.samps_per_gauge, nboots=self.nboots)
-
 
