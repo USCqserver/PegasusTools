@@ -240,6 +240,20 @@ def dilute_bonds(g: nx.Graph, p, rng: Generator=None):
     return g
 
 
+def dilute_to_degree(g: nx.Graph, n, rng: Generator=None, num_rounds=2):
+    for i in range(num_rounds):
+        remaining_rounds = num_rounds - i
+        num_edges = g.number_of_edges()
+        num_nodes = g.number_of_nodes()
+        #avg_deg = 2*num_edges / num_nodes
+        #print(f"Iter {i}: Avg degree {avg_deg}")
+        tgt_num_edges = n * num_nodes / 2.0
+        p_remove = max((num_edges - tgt_num_edges)/num_edges/remaining_rounds, 0.0)
+        g = dilute_bonds(g, 1.0 - p_remove, rng)
+    #print(f"Diluted to degree {2*g.number_of_edges()/g.number_of_nodes()}")
+    return g
+
+
 def dilute_nodes(g: nx.Graph, p, rng: Generator=None):
     num_nodes = g.number_of_nodes()
     if rng is None:
@@ -299,6 +313,8 @@ def main():
                         help="Dilute the nodes by a certain probability.")
     parser.add_argument("--bond-dilution", type=float, default=None,
                         help="Dilute the bonds by a certain probability.")
+    parser.add_argument("--dilute-degree", type=int, default=None,
+                        help="Dilute the bonds to reach a target")
     parser.add_argument("--noise-disorder", type=int, default=None,
                         help="Generate noise disorder instances in addition to the noise-free problem instance.")
     parser.add_argument("--bond-noise", type=float, default=None,
@@ -457,7 +473,8 @@ def main():
         g2 = dilute_nodes(g2, args.dilution, rng)
     if args.bond_dilution is not None:
         g2 = dilute_bonds(g2, args.bond_dilution, rng)
-
+    elif args.dilute_degree is not None:
+        g2 = dilute_to_degree(g2, args.dilute_degree, rng, num_rounds=5)
     dest_path = path.Path(args.dest)
     dest_stem = dest_path.stem
     dest_suff = dest_path.suffix
