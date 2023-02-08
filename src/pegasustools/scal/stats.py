@@ -57,6 +57,29 @@ def beta_samp(p, n, nsamps):
         return stats.beta.rvs(p * n, (1.0 - p) * n, size=nsamps)
 
 
+def beta_sample(p, n, nsamps, rng=None):
+    """
+    Sample from the beta distribution of a probability array with n measurements,
+    i.e. a = p * n successful observations and b = (1.0 - p) * n unsuccessful observations
+    :param p: Probability array
+    :param n: Observations, broadcastable with p
+    :param nsamps: Number of samples to draw
+    :return:
+        Array of samples from the beta distribution, shaped (*broadcast_shape(p, n), nsamps)
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    out_shape = (*p.shape, nsamps)
+    p = np.clip(p, 1.0e-8/n, 1.0 - 1.0e-8/n)
+    a = p * n
+    b = (1.0 - p) * n
+    a = a[..., np.newaxis]
+    b = b[..., np.newaxis]
+    samp = rng.beta(a, b, size=out_shape)
+    return samp
+
+
 arr_beta_samp = np.vectorize(beta_samp, signature='(),(),()->(n)')
 
 par_weighted_quantiles = np.vectorize(weighted_quantile, signature='(n),(),(n)->()')
@@ -114,7 +137,7 @@ def reduce_median(x):
     return mdmean, mdstd
 
 
-def boots_percentile(x, p, n_boots=None):
+def boots_percentile(x, p, n_boots=None, rng: np.random.Generator = None):
     """
     Evaluates the percentile of the last dimension of x with where
     the second-to-last dimension is an existing bootstrap dimension
@@ -123,6 +146,9 @@ def boots_percentile(x, p, n_boots=None):
     returns: (mean, std) of the percentile over the last dimension
     If any percentile is not finite, then it evaluates to (np.inf, 0)
     """
+    if rng is None:
+        rng = np.random.default_rng()
+
     pre_dims = x[..., 0:1, 0:1].size
     n = x.shape[-1]
     boots_dim = x.shape[-2]
@@ -131,39 +157,69 @@ def boots_percentile(x, p, n_boots=None):
 
     # n_boots samples from the dirichlet distribution
     alpha = np.full(n, 1)
-    dir_samp = stats.dirichlet.rvs(alpha, size=pre_dims * boots_dim)  # [size, n]
+    dir_samp = rng.dirichlet(alpha, size=pre_dims * boots_dim)  # [size, n]
     dir_samp = np.reshape(dir_samp, list(x.shape[:-2]) + [boots_dim, n])  # [..., n_boots, n]
     perc = par_weighted_quantiles(x, p, dir_samp)  # [..., n_boots]
-    # evaluate if all finite
 
     return perc
 
 
-def pgs_bootstrap(pgs_arr, nsamps, boot_samps):
+def pgs_bootstrap(pgs_arr, nsamps, boot_samps, rng: np.random.Generator = None):
     """
     pgs_arr: [..., r] dimensional array
     nsamps: number of samples per gauge
     boot_samps: number of bootstrap samples
 
     returns: [..., boot_samps] array of bayesian bootstrapped ground state probabilities
+
+    Caution: This bootstrapping procedure may consume a large amount of memory
     """
+    if rng is None:
+        rng = np.random.default_rng()
     # resample from beta_distribution
-    pgs_samp = arr_beta_samp(pgs_arr, nsamps, boot_samps)  # [ ..., r, boot_samps]
+    pgs_samp = beta_sample(pgs_arr, nsamps, boot_samps, rng=rng)  # [ ..., r, boot_samps]
     pgs_samp = np.swapaxes(pgs_samp, -2, -1)  # [ ..., boot_samps, r]
     r = pgs_arr.shape[-1]
     pre_dims = pgs_arr[..., 0:1].size
 
     # Dirichlet dist sample
     alpha = np.full(r, 1)
-    dir_samp = stats.dirichlet.rvs(alpha, size=pre_dims * boot_samps)  # [size, r]
+    dir_samp = rng.dirichlet(alpha, size=pre_dims * boot_samps)  # [size, r]
     dir_samp = np.reshape(dir_samp, list(pgs_arr.shape[:-1]) + [boot_samps, r])  # [..., boot_samps, r]
     boots_samp = np.sum(pgs_samp * dir_samp, axis=-1)  # [..., boot_samps]
 
     return boots_samp
 
 
+class TTSStatistics:
+    def __init__(self, mean, err, inf_frac=None, l_list=None, tflist=None):
+        self.mean = mean
+        self.err = err
+        self.inf_frac = inf_frac
+        self.l_list = np.asarray(l_list)
+        self.tflist = tflist
 
-TTSStatistics = namedtuple("TTS", "median err inf_frac")
+    def save_npz(self, file):
+        np.savez(file, L=np.asarray(self.l_list),
+                 log_tts_mean=self.mean,
+                 log_tts_err=self.err)
+
+    def __getitem__(self, idx):
+        return TTSStatistics(self.mean[idx], self.err[idx], self.inf_frac[idx], self.l_list, self.tflist)
+
+    @staticmethod
+    def load_npz(file):
+        dat = np.load(file)
+        ttss = TTSStatistics(dat['mean'], dat['err'])
+        if 'l_list' in dat:
+            ttss.l_list = dat['l_list']
+        if 'inf_frac' in dat:
+            ttss.inf_frac = dat['inf_frac']
+        if 'tf_list' in dat:
+            ttss.tflist = dat['tflist']
+        return ttss
+
+#TTSStatistics = namedtuple("TTSStatistics", "median err inf_frac")
 
 def eval_pgs_tts(pgs_array, tf_list, samps_per_gauge, nboots=200):
     log_tts_boots = np.log10(
