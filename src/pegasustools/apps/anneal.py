@@ -1,6 +1,7 @@
 import argparse
 
-from pegasustools.annealers.base import AnnealerModuleRunner, DWaveAnnealerModule, ScaledModule, MinorEmbeddingModule
+from pegasustools.annealers.base import AnnealerModuleRunner, DWaveAnnealerModule, ScaledModule, MinorEmbeddingModule, \
+    VariableMappingModule
 
 
 def main(args=None):
@@ -8,11 +9,13 @@ def main(args=None):
     AnnealerModuleRunner.add_arguments(parser)
     DWaveAnnealerModule.add_arguments(parser)
     ScaledModule.add_arguments(parser)
+    VariableMappingModule.add_arguments(parser)
     MinorEmbeddingModule.add_arguments(parser)
     args = parser.parse_args(args)
     kwargs_dict = vars(args)
     module = DWaveAnnealerModule(**kwargs_dict)
     module = ScaledModule(module, **kwargs_dict)
+    module = VariableMappingModule(module, **kwargs_dict)
     module = MinorEmbeddingModule(module, **kwargs_dict)
     runner = AnnealerModuleRunner(module, **kwargs_dict)
     bqm, sampler, results = runner.main()
