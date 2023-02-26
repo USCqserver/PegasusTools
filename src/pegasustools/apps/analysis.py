@@ -43,6 +43,9 @@ plt.rcParams['text.latex.preamble']= \
 #rc('font',**{'family':'serif','serif':['Times']})
 rc('text', usetex=True)
 
+DEFAULT_FIGSIZE=5.0
+DEFAULT_FIGASPECT=1.0
+
 class PGTMethodBase:
     def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg, instance_sizes, rhos=None):
         self.name = name
@@ -58,16 +61,31 @@ class PGTMethodBase:
         self.global_cfg = global_cfg
         self.instance_sizes = instance_sizes
 
-    def plot_tts_analysis(self, tts_statistics: TTSStatistics, instance_sizes, scaling_start=-5, ax=None,
-                          rho_or_eps=None, cl=2.0,
+    def plot_tts_analysis(self, tts_statistics: TTSStatistics, instance_sizes, scaling_start=-5, loglin=False, ax=None,
+                          rho_or_eps=None, cl=2.0, savecsv=None,
                           plot_epsilons=None):
         if rho_or_eps is None:
             rho_or_eps = self.rho_or_eps
         if plot_epsilons is None:
             plot_epsilons = list(range(len(rho_or_eps)))
-        loglinres= [stats.linregress(np.log10(instance_sizes[scaling_start:]),
+        if loglin:
+            x = np.asarray(instance_sizes)
+        else:
+            x = np.log10(instance_sizes)
+        loglinres= [stats.linregress(x[scaling_start:],
                                       tts_statistics.mean[i, scaling_start:])
                      for i in plot_epsilons]
+        if savecsv is not None:
+            logging.info(f"Saving TTS data to {savecsv}")
+            _eps_arr = np.concatenate([[rho_or_eps[i]]*len(instance_sizes) for i in plot_epsilons])
+            _x_arr = np.concatenate([x]*len(plot_epsilons))
+            _y_arr = np.concatenate([tts_statistics.mean[i, :] for i in plot_epsilons])
+            _y_err_arr = np.concatenate([tts_statistics.err[i, :] for i in plot_epsilons])
+            df = pd.DataFrame(data={'eps': _eps_arr, 'x': _x_arr, 'y': _y_arr, 'yerr': _y_err_arr})
+            if tts_statistics.inf_frac is not None:
+                _inf_frac = np.concatenate([tts_statistics.inf_frac[i, :] for i in plot_epsilons])
+                df['inffrac'] = _inf_frac
+            df.to_csv(savecsv)
         if ax is None:
             fig = plt.gcf()
             ax = fig.gca()
@@ -77,24 +95,31 @@ class PGTMethodBase:
                 label = f"$\\rho={self.rhos[i] * 100:3.2f}\%$"
             else:
                 label = f"$\\varepsilon={eps}$"
-            x = np.log10(instance_sizes)
+
             y, y_err = tts_statistics.mean[i, :], tts_statistics.err[i, :]
             if tts_statistics.inf_frac is not None:
                 msk = tts_statistics.inf_frac[i] < 0.1
-                x = x[msk]
+                _x = x[msk]
                 y = y[msk]
                 y_err = y_err[msk]
+            else:
+                _x = x
             color = next(ax._get_lines.prop_cycler)['color']
-            plt.errorbar(x, y, yerr= cl * y_err, color=color, ls='None',
+            plt.errorbar(_x, y, yerr= cl * y_err, color=color, ls='None',
                          label=label, capsize=4, marker='.')
 
-            x = np.log10(np.linspace((instance_sizes[scaling_start] + instance_sizes[scaling_start - 1]) / 2.0,
-                                     instance_sizes[-1], 10))
+            x_lin = np.linspace((x[scaling_start] + x[scaling_start - 1]) / 2.0,
+                                 x[-1], 10)
             # y = pticm_pow_law(x, *pticm_powres[i][0])
-            y = res.intercept + x * res.slope
+            print(f"{label}: {res.slope}*X + {res.intercept}")
+            y = res.intercept + x_lin * res.slope
             _k = res.slope
             _c = res.intercept
-            plt.plot(x, y, label=f"$k={_k:3.2f}$", color=color, linestyle='--')
+            if loglin:
+                lr_label = f"$a={_k:3.2}$"
+            else:
+                lr_label = f"$k={_k:3.2f}$"
+            plt.plot(x_lin, y, label=lr_label, color=color, linestyle='--')
 
         return ax, loglinres
 
@@ -230,17 +255,28 @@ class DWMethod(PGTMethodBase):
 
         return TTSStatistics(opt_tts, opt_tts_err, opt_tts_inf_frac, self.llist, tflist=opt_tts_tf), opt_hparams
 
-    def tts_analysis(self, instance_sizes, i=None, q=0.5, rng=None, scaling_start=-5, **kwargs):
+    def tts_analysis(self, instance_sizes, i=None, q=0.5, rng=None, scaling_start=-5, out_name=None,
+                    figsize=DEFAULT_FIGSIZE, figaspect=DEFAULT_FIGASPECT, loglin=False, **kwargs):
+        if out_name is None:
+            out_name = self.name
         tts_statistics, opt_hparams = self.tts_quantile_opt(i=i, q=q, rng=rng)
 
-        fig = plt.figure(figsize=(8.5, 8.5))
+        fig = plt.figure(figsize=(figsize*figaspect, figsize))
         ax = plt.subplot()
-        self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax, **kwargs)
+        self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax,
+                               loglin=loglin,
+                               savecsv=self.out_dir / f"dw_{out_name}_q{q:4.3f}_tts_scaling.csv",
+                               **kwargs)
 
-        plt.xlabel('$\\log_{10} N$')
+        if loglin:
+            plt.xlabel('$N$')
+        else:
+            plt.xlabel('$\\log_{10} N$')
         plt.ylabel('$\\log_{10}$ TTE ($\\mu s$)')
         plt.legend(ncol=2)
-        plt.savefig(self.out_dir / f"dw_{self.name}_q{q:4.3f}_tts_scaling.pdf")
+        plt.savefig(self.out_dir / f"dw_{out_name}_q{q:4.3f}_tts_scaling.pdf")
+        if len(opt_hparams) > 0:
+            np.save(str(self.out_dir / f"dw_{out_name}_q{q:4.3f}_tts_scaling_opt_hparams.npy"), opt_hparams)
 
 
 class MCMethod(PGTMethodBase):
@@ -292,17 +328,25 @@ class MCMethod(PGTMethodBase):
         return pticm_tts_statistics
 
     def tts_analysis(self, instance_sizes, nboots, q=0.5, rng: np.random.Generator = None,
-                     scaling_start=-5, **kwargs):
+                     scaling_start=-5, figsize=DEFAULT_FIGSIZE, figaspect=DEFAULT_FIGASPECT, out_name=None,
+                     loglin=False,
+                     **kwargs):
+        if out_name is None:
+            out_name = self.name
         tts_statistics = self.tts_quantile(nboots, q=q, rng=rng)
 
-        fig = plt.figure(figsize=(8.5, 8.5))
+        fig = plt.figure(figsize=(figsize*figaspect, figsize))
         ax = plt.subplot()
-        self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax, **kwargs)
-
-        plt.xlabel('$\\log_{10} N$')
+        self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax, loglin=loglin,
+                               savecsv=self.out_dir / f"{out_name}_q{q:4.3f}_tts_scaling.csv",
+                               **kwargs)
+        if loglin:
+            plt.xlabel('$N$')
+        else:
+            plt.xlabel('$\\log_{10} N$')
         plt.ylabel('$\\log_{10}$ TTE ($\\mu s$)')
         plt.legend(ncol=2)
-        plt.savefig(self.out_dir / f"{self.name}_q{q:4.3f}_tts_scaling.pdf")
+        plt.savefig(self.out_dir / f"{out_name}_q{q:4.3f}_tts_scaling.pdf")
 
 
 class PGTScalingAnalysis:
@@ -315,6 +359,8 @@ class PGTScalingAnalysis:
         self.n_boots = cfg['n_boots']
         self.llist = cfg['llist']
         self.instance_sizes = cfg.get('instance_sizes', self.llist)
+        self.figsize = cfg.get('figsize', DEFAULT_FIGSIZE)
+        self.figaspect = cfg.get('figaspect', DEFAULT_FIGASPECT)
         logging.info(f"Instance size parameters: {self.llist}")
 
         self.idxlist = [i for i in range(self.num_instances)]
@@ -401,18 +447,24 @@ class PGTScalingAnalysis:
     def tts_analysis(self):
         logging.info("Writing TTS analysis ... ")
         tts_analysis_cfg = self.cfg.get("tts_analysis", {})
-        for s in self.mc_samplers.values():
-            logging.info(f"{s.name}")
-            _cfg = tts_analysis_cfg.get(s.name, {})
-            plot_epsilons = _cfg.get("plot_epsilons", self.plot_epsilons)
-            s.tts_analysis(self.instance_sizes, self.n_boots, q=0.5, rng=self.rng,
-                           scaling_start=-5, plot_epsilons=plot_epsilons)
-        for s in self.dw_samplers.values():
-            logging.info(f"{s.name}")
-            _cfg = tts_analysis_cfg.get(s.name, {})
-            plot_epsilons = _cfg.get("plot_epsilons", self.plot_epsilons)
-            s.tts_analysis(self.instance_sizes, q=0.5, rng=self.rng,
-                           scaling_start=-5, plot_epsilons=plot_epsilons)
+        for name, _cfg in tts_analysis_cfg.items():
+            sampler_name = _cfg.get("sampler", name)
+            if sampler_name in self.mc_samplers:
+                s = self.mc_samplers[sampler_name]
+                logging.info(f"{name}")
+                plot_epsilons = _cfg.get("plot_epsilons", self.plot_epsilons)
+                loglin = _cfg.get("loglin", False)
+                s.tts_analysis(self.instance_sizes, self.n_boots, q=0.5, rng=self.rng,
+                               scaling_start=-5, out_name=name, loglin=loglin, plot_epsilons=plot_epsilons)
+            elif sampler_name in self.dw_samplers:
+                s = self.dw_samplers[sampler_name]
+                logging.info(f"{name}")
+                plot_epsilons = _cfg.get("plot_epsilons", self.plot_epsilons)
+                loglin = _cfg.get("loglin", False)
+                s.tts_analysis(self.instance_sizes, q=0.5, rng=self.rng,
+                               scaling_start=-5, out_name=name, loglin=loglin, plot_epsilons=plot_epsilons)
+            else:
+                logging.info(f"Unrecognized sampler {sampler_name}")
 
     def mc2q_speedup(self, mc_reference, q_target):
         # Evaluate the speedup of a quantum/sampler method over a monte-carlo method
@@ -473,22 +525,25 @@ class PGTScalingAnalysis:
                 target_name = v['target']
                 plot_epsilons = v.get('plot_epsilons', self.plot_epsilons)
                 if reference_name in self.mc_samplers and target_name in self.dw_samplers:
-                    fig = plt.figure(figsize=(7.5, 7.5))
+                    fig = plt.figure(figsize=(self.figsize*self.figaspect, self.figsize))
                     ax = plt.subplot()
                     tts_statistics, speedup_array = self.mc2q_speedup(reference_name, target_name)
-                    _, loglinres = self.dw_samplers[target_name].plot_tts_analysis(tts_statistics, self.instance_sizes,
-                                                            scaling_start=-5, ax=ax, plot_epsilons=plot_epsilons)
+                    _, loglinres = self.dw_samplers[target_name].plot_tts_analysis(
+                        tts_statistics, self.instance_sizes, scaling_start=-5,
+                        savecsv=self.out_dir / f"speedup_{name}_q{0.5:4.3f}.csv",
+                        ax=ax, plot_epsilons=plot_epsilons)
                     plt.xlabel('$\\log_{10} N$')
                     plt.ylabel('$\\log_{10} \\mathrm{Speedup} $')
                     plt.legend(loc='lower left', ncol=2)
                     plt.savefig(self.out_dir / f"speedup_{name}_q{0.5:4.3f}.pdf")
                 elif reference_name in self.dw_samplers and target_name in self.dw_samplers:
-                    fig = plt.figure(figsize=(7.5, 7.5))
+                    fig = plt.figure(figsize=(self.figsize*self.figaspect, self.figsize))
                     ax = plt.subplot()
                     tts_statistics, speedup_array = self.q2q_speedup(reference_name, target_name)
-                    _, loglinres = self.dw_samplers[target_name].plot_tts_analysis(tts_statistics, self.instance_sizes,
-                                                                                   scaling_start=-5, ax=ax,
-                                                                                   plot_epsilons=plot_epsilons)
+                    _, loglinres = self.dw_samplers[target_name].plot_tts_analysis(
+                        tts_statistics, self.instance_sizes,scaling_start=-5,
+                        savecsv=self.out_dir / f"speedup_{name}_q{0.5:4.3f}.csv",
+                        ax=ax, plot_epsilons=plot_epsilons)
                     plt.xlabel('$\\log_{10} N$')
                     plt.ylabel('$\\log_{10} \\mathrm{Speedup} $')
                     plt.legend(loc='lower left', ncol=2)
@@ -514,6 +569,8 @@ def main():
     pgt_analysis.draw_bootstrap_samples()
     pgt_analysis.tts_analysis()
     pgt_analysis.speedup_analysis()
+
+    logging.info("Analysis complete")
 
 
 if __name__ == "__main__":
