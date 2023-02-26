@@ -31,8 +31,9 @@ def main():
     l = args.L
     sampler = DWaveSampler()
     g = sampler.to_networkx_graph()
-    g_sub = dwave_networkx.pegasus_graph(l, node_list=g.nodes, edge_list=g.edges)
-
+    g_sub = dwave_networkx.pegasus_graph(l)
+    g_sub.remove_nodes_from(set(g_sub.nodes) - set(g.nodes))
+    g_sub.remove_edges_from(set(g_sub.edges) - set(g.edges))
     mapping_dict, g2 = canonical_order_labels(g_sub)
     nx.set_node_attributes(g2, mapping_dict['labels_to_nodes'], "qubit")
     # Save the integer label adjacency list in plain text
