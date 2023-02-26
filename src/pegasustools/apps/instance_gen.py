@@ -241,16 +241,22 @@ def dilute_bonds(g: nx.Graph, p, rng: Generator=None):
 
 
 def dilute_to_degree(g: nx.Graph, n, rng: Generator=None, num_rounds=2):
-    for i in range(num_rounds):
-        remaining_rounds = num_rounds - i
-        num_edges = g.number_of_edges()
-        num_nodes = g.number_of_nodes()
-        #avg_deg = 2*num_edges / num_nodes
-        #print(f"Iter {i}: Avg degree {avg_deg}")
-        tgt_num_edges = n * num_nodes / 2.0
-        p_remove = max((num_edges - tgt_num_edges)/num_edges/remaining_rounds, 0.0)
-        g = dilute_bonds(g, 1.0 - p_remove, rng)
-    #print(f"Diluted to degree {2*g.number_of_edges()/g.number_of_nodes()}")
+    num_edges = g.number_of_edges()
+    num_nodes = g.number_of_nodes()
+    tgt_num_edges = n * num_nodes // 2
+    if rng is None:
+        rng = default_rng()
+    rand_eps = rng.uniform(0.0, 1.0, [num_edges])
+    sort_edges = np.argsort(rand_eps)[:num_edges - tgt_num_edges]
+    removals = np.zeros(num_edges, dtype=int)
+    removals[sort_edges] = 1
+    zero_edges = []
+    for b, (u, v) in zip(removals, g.edges):
+        if b > 0:
+            zero_edges.append((u, v))
+    g.remove_edges_from(zero_edges)
+    g.remove_nodes_from(list(nx.isolates(g)))
+
     return g
 
 
