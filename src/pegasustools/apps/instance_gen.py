@@ -247,12 +247,12 @@ def dilute_to_degree(g: nx.Graph, n, rng: Generator=None, num_rounds=2):
     if rng is None:
         rng = default_rng()
     rand_eps = rng.uniform(0.0, 1.0, [num_edges])
-    sort_edges = np.argsort(rand_eps)[:num_edges - tgt_num_edges]
-    removals = np.zeros(num_edges, dtype=int)
-    removals[sort_edges] = 1
+    sort_edges = np.argsort(rand_eps)[:tgt_num_edges]
+    keepedge = np.zeros(num_edges, dtype=int)
+    keepedge[sort_edges] = 1
     zero_edges = []
-    for b, (u, v) in zip(removals, g.edges):
-        if b > 0:
+    for b, (u, v) in zip(keepedge, g.edges):
+        if b == 0:
             zero_edges.append((u, v))
     g.remove_edges_from(zero_edges)
     g.remove_nodes_from(list(nx.isolates(g)))

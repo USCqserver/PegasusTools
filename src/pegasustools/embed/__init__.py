@@ -42,11 +42,11 @@ class VariableMappingComposite(ComposedSampler):
             n2l, l2n = self.variable_mapping
             mapping = {k: n for k, n in l2n.items() if k in bqm.linear}
             inverse_mapping = {n: k for (n, k) in n2l.items() if k in bqm.linear}
-            bqm.relabel_variables(mapping)
+            bqmrel = bqm.relabel_variables(mapping, inplace=False)
         else:
             inverse_mapping = None
 
-        samples: SampleSet = self.child.sample(bqm, **parameters)
+        samples: SampleSet = self.child.sample(bqmrel, **parameters)
         if inverse_mapping is not None:
             samples.relabel_variables(inverse_mapping, inplace=True)
         return samples
