@@ -1,6 +1,7 @@
 import argparse
 
 import dwave_networkx
+import networkx
 
 import networkx as nx
 import json
@@ -30,10 +31,20 @@ def main():
 
     l = args.L
     sampler = DWaveSampler()
-    g = sampler.to_networkx_graph()
-    g_sub = dwave_networkx.pegasus_graph(l)
-    g_sub.remove_nodes_from(set(g_sub.nodes) - set(g.nodes))
-    g_sub.remove_edges_from(set(g_sub.edges) - set(g.edges))
+    lmax = sampler.properties['topology']['shape'][0]
+    g: networkx.Graph = dwave_networkx.pegasus_graph(lmax,
+                                     node_list=sampler.nodelist, edge_list=sampler.edgelist,
+                                     data=True)
+    sub_nodes = []
+    if l < lmax:
+        for n, d in g.nodes.data():
+            (u, w, k, z) = d['pegasus_index']
+            if w < l and z < l-1:
+                sub_nodes.append(n)
+        g_sub = g.subgraph(sub_nodes)
+    else:
+        g_sub = g
+
     mapping_dict, g2 = canonical_order_labels(g_sub)
     nx.set_node_attributes(g2, mapping_dict['labels_to_nodes'], "qubit")
     # Save the integer label adjacency list in plain text
