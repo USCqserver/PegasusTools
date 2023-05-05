@@ -1,5 +1,9 @@
 import abc
 import argparse
+import logging
+import pathlib
+import pickle
+
 import dimod
 from typing import Dict
 import networkx as nx
@@ -10,7 +14,7 @@ import dwave_networkx as dnx
 from itertools import combinations, product
 from dimod.variables import Variables
 from dwave.preprocessing import ScaleComposite
-from dwave.system import DWaveSampler, AutoEmbeddingComposite
+from dwave.system import DWaveSampler, AutoEmbeddingComposite, FixedEmbeddingComposite, LazyFixedEmbeddingComposite
 from dwave.embedding import weighted_random
 from pegasustools.util import concatenate
 from pegasustools.util.sched import interpret_schedule
@@ -182,7 +186,7 @@ class AnnealerModuleRunner:
             datvec: dict = result.data_vectors
             energies = datvec.pop('energy')
             num_occurrences = datvec.pop('num_occurrences')
-            datvec['rep'] = np.full(energies.shape[0], i, dtype=np.int)
+            datvec['rep'] = np.full(energies.shape[0], i, dtype=int)
             res = dimod.SampleSet.from_samples((samps, result.variables), result.vartype, energies,
                                                info=result.info, num_occurrences=num_occurrences,
                                                aggregate_samples=False, sort_labels=False, **datvec)
@@ -286,9 +290,9 @@ class ScaledModule(CompositeAnnealerModule):
 
 
 class MinorEmbeddingModule(CompositeAnnealerModule):
-    def __init__(self, child_module, embedding_name='embedding', **kwargs):
+    def __init__(self, child_module, **kwargs):
         super(MinorEmbeddingModule, self).__init__(child_module)
-        self.embedding_name = embedding_name
+        self.embedding_name = kwargs['embedding_name']
 
         self.minor_embed = kwargs['minor_embed']
         self.chain_strength = kwargs['chain_strength']
@@ -296,6 +300,7 @@ class MinorEmbeddingModule(CompositeAnnealerModule):
         self.embedding_threads = kwargs['embedding_threads']
         self.draw_embedding = kwargs['draw_embedding']
         self.track_chains = kwargs['track_chains']
+        self.fixed_embedding = kwargs['fixed_embedding']
 
     @classmethod
     def add_arguments(cls, parser):
@@ -308,6 +313,8 @@ class MinorEmbeddingModule(CompositeAnnealerModule):
         p.add_argument("--embedding-threads", type=int, default=1)
         p.add_argument("--draw-embedding", default=None)
         p.add_argument("--track-chains",  action='store_true')
+        p.add_argument("--fixed-embedding", default=None)
+        p.add_argument("--embedding-name", default='embedding')
         return p
 
     def initialize_sampler(self):
@@ -321,11 +328,28 @@ class MinorEmbeddingModule(CompositeAnnealerModule):
                 'chain_break_method': weighted_random,
                 'return_embedding': True
             }
-            sampler = AutoEmbeddingComposite(sampler, embedding_parameters=embedding_parameters)
+            save_embedding=None
+            if self.fixed_embedding is not None:  # A fixed embedding file is specified
+                emb_path = pathlib.Path(self.fixed_embedding)
+                if emb_path.is_file():  # Load the embedding
+                    logging.info(f"Loading embedding from {self.fixed_embedding}")
+                    with open(emb_path, 'rb') as f:
+                        emb = pickle.load(f)
+                    if isinstance(emb, list):
+                        emb = emb[0]
+                    sampler = FixedEmbeddingComposite(sampler, embedding=emb)
+                else:  # Save the first embedding found
+                    logging.info(f"Embedding will be saved to {self.fixed_embedding}")
+                    sampler = AutoEmbeddingComposite(sampler, embedding_parameters=embedding_parameters)
+                    save_embedding = self.fixed_embedding
+            else:
+                sampler = AutoEmbeddingComposite(sampler, embedding_parameters=embedding_parameters)
+
+            if self.track_chains or save_embedding is not None:
+                sampler = EmbeddingSummaryWrapper(sampler, self.embedding_name, save_embedding=save_embedding)
+
             if self.draw_embedding is not None:
-                sampler = DrawEmbeddingWrapper(sampler, self.draw_embedding)
-            if self.track_chains:
-                sampler = EmbeddingSummaryWrapper(sampler, self.embedding_name)
+                sampler = DrawEmbeddingWrapper(sampler, self.draw_embedding, embedding_name=self.embedding_name)
         else:
             emb_kwargs = {}
         self._sampler_kwargs = emb_kwargs
