@@ -186,8 +186,10 @@ class DWMethod(PGTMethodBase):
         i = len(self.boots_samples)
         out_file = self.out_dir / f'dw_{self.name}_tts_{i}_boots.npy'
         if out_file.is_file() and not self.global_cfg['overwrite']:
+            logging.info(f'Loading bootstrap samples from {out_file}')
             _log_tts_boots = np.load(str(out_file))
         else:
+            logging.info(f'Generating bootstrap samples to {out_file}')
             _log_tts_boots = np.log10(
                 tts(pgs_bootstrap(self.pgs_arr, self.samps_per_gauge, nboots, rng=rng),
                     np.reshape(self.annealing_times, [-1, 1, 1]))
@@ -230,37 +232,70 @@ class DWMethod(PGTMethodBase):
             log_med = log_med + extra_offset
         return TTSStatistics(log_med, log_med_err, log_med_inf / nboots, self.llist)
 
-    def tts_quantile_opt(self,  i=None, q=0.5, rng=None):
+    # this function is probably a good candidate to cythonize
+    def tts_quantile_opt(self,  i=None, q=0.5, rng=None, boots_hparams=True):
         # Optimize over annealing time and any other hyperparameters
         hparam_shape = self.hparam_shape
-        opt_shape = (*hparam_shape, len(self.annealing_times))
-        out_shape = (len(self.rho_or_eps), len(self.llist))
-        tts_stats = self.tts_quantile(i, q, rng)
+        if boots_hparams:
+            if i is None:
+                i = -1
+            log_tts_boots = self.boots_samples[i]
+            nboots = log_tts_boots.shape[-2]
+            log_med_tts_boots = boots_percentile(log_tts_boots, q, rng=rng)  # [..., nR, nL, num_tf, num_boots]
+            # use offsets as specified in settings
+            sum_offset = np.reshape(self.get_offset(), (-1, 1, 1))
+            log_med_tts_boots += sum_offset
 
-        opt_tts = np.zeros(out_shape)
-        opt_tts_err = np.zeros(out_shape)
-        opt_tts_inf_frac = np.zeros(out_shape)
-        opt_tts_tf = np.zeros(out_shape)
-        opt_hparams = np.zeros((*out_shape, 1 + len(hparam_shape)), dtype=int)
-        for i in range(len(self.rho_or_eps)):
-            for li in range(len(self.llist)):
-                arr = tts_stats.mean[..., i, li, :]
-                med_amin = np.ma.argmin(arr, axis=None)
-                idx_amin = np.unravel_index(med_amin, arr.shape)
-                opt_tts_tf[i, li] = self.annealing_times[idx_amin[-1]]
-                opt_tts[i, li] = arr[idx_amin]
-                opt_tts_err[i, li] = tts_stats.err[(*idx_amin[:-1], i, li, idx_amin[-1])]
-                opt_tts_inf_frac[i, li] = tts_stats.inf_frac[(*idx_amin[:-1], i, li, idx_amin[-1])]
-                opt_hparams[i, li] = np.asarray([*idx_amin])
+            # Optimize the hyperparameters over each bootstrap sample
+            out_shape1 = (len(self.rho_or_eps), len(self.llist), nboots)
+            opt_tts = np.zeros(out_shape1)  # [nR, nL, num_boots]
+            opt_tts_tf = np.zeros(out_shape1)
+            opt_hparams = np.zeros((*out_shape1, 1 + len(hparam_shape)), dtype=int)
+            for i in range(len(self.rho_or_eps)):
+                for li in range(len(self.llist)):
+                    for b in range(nboots):
+                        arr = log_med_tts_boots[..., i, li, :, b]
+                        med_amin = np.ma.argmin(arr, axis=None)
+                        idx_amin = np.unravel_index(med_amin, arr.shape)
+                        opt_tts_tf[i, li, b] = self.annealing_times[idx_amin[-1]]
+                        opt_tts[i, li, b] = arr[idx_amin]
+                        opt_hparams[i, li, b] = np.asarray([*idx_amin])
+            opt_tts_mask = np.isfinite(opt_tts)
+            return opt_tts, opt_tts_tf, opt_tts_mask, opt_hparams
+        else:
+            out_shape = (len(self.rho_or_eps), len(self.llist))
+            tts_stats = self.tts_quantile(i, q, rng)
 
-        return TTSStatistics(opt_tts, opt_tts_err, opt_tts_inf_frac, self.llist, tflist=opt_tts_tf), opt_hparams
+            opt_tts = np.zeros(out_shape)
+            opt_tts_err = np.zeros(out_shape)
+            opt_tts_inf_frac = np.zeros(out_shape)
+            opt_tts_tf = np.zeros(out_shape)
+            opt_hparams = np.zeros((*out_shape, 1 + len(hparam_shape)), dtype=int)
+            for i in range(len(self.rho_or_eps)):
+                for li in range(len(self.llist)):
+                    arr = tts_stats.mean[..., i, li, :]
+                    med_amin = np.ma.argmin(arr, axis=None)
+                    idx_amin = np.unravel_index(med_amin, arr.shape)
+                    opt_tts_tf[i, li] = self.annealing_times[idx_amin[-1]]
+                    opt_tts[i, li] = arr[idx_amin]
+                    opt_tts_err[i, li] = tts_stats.err[(*idx_amin[:-1], i, li, idx_amin[-1])]
+                    opt_tts_inf_frac[i, li] = tts_stats.inf_frac[(*idx_amin[:-1], i, li, idx_amin[-1])]
+                    opt_hparams[i, li] = np.asarray([*idx_amin])
+
+            return TTSStatistics(opt_tts, opt_tts_err, opt_tts_inf_frac, self.llist, tflist=opt_tts_tf), opt_hparams
 
     def tts_analysis(self, instance_sizes, i=None, q=0.5, rng=None, scaling_start=-5, out_name=None,
                     figsize=DEFAULT_FIGSIZE, figaspect=DEFAULT_FIGASPECT, loglin=False, **kwargs):
         if out_name is None:
             out_name = self.name
-        tts_statistics, opt_hparams = self.tts_quantile_opt(i=i, q=q, rng=rng)
-
+        #tts_statistics, opt_hparams = self.tts_quantile_opt(i=i, q=q, rng=rng, boots_hparams=False)
+        # optimized tts over all bootstrap samples
+        # [nR, nL, boots]
+        opt_tts_boots, opt_tts_tf, opt_tts_boots_mask, opt_hparams = self.tts_quantile_opt(i=i, q=q, rng=rng, boots_hparams=True)
+        # reduced to [nR, nL]
+        opt_tts, log_med_err, log_med_inf = reduce_mean(opt_tts_boots, ignore_inf=True)
+        avg_opt_tf, _ = reduce_mean(opt_tts_tf)
+        tts_statistics = TTSStatistics(opt_tts, log_med_err, log_med_inf/opt_tts_boots.shape[-1], self.llist, tflist=avg_opt_tf)
         fig = plt.figure(figsize=(figsize*figaspect, figsize))
         ax = plt.subplot()
         self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax,
@@ -471,7 +506,7 @@ class PGTScalingAnalysis:
         reference = self.mc_samplers[mc_reference]
         target : DWMethod = self.dw_samplers[q_target]
         ref_boots_samps = reference.opt_tts_arr()  # [nR, nL, 1, instances]
-        target_boots, target_hp = target.tts_quantile_opt(i=-1, q=0.5, rng=self.rng)
+        target_boots, target_hp = target.tts_quantile_opt(i=-1, q=0.5, rng=self.rng, boots_hparams=False)
         target_boot_samps = target.boots_samples[-1]  # [*hparams, nR, nL, tf, nboots, instances]
         nR = len(self.rho_or_eps)
         nL = len(self.llist)
@@ -492,10 +527,10 @@ class PGTScalingAnalysis:
         reference = self.dw_samplers[q_reference]
         target = self.dw_samplers[q_target]
 
-        ref_boots, ref_hp = reference.tts_quantile_opt(i=-1, q=0.5, rng=self.rng)
+        ref_boots, ref_hp = reference.tts_quantile_opt(i=-1, q=0.5, rng=self.rng, boots_hparams=False)
         ref_boot_samps = reference.boots_samples[-1]  # [*hparams, nR, nL, tf, nboots, instances]
 
-        target_boots, target_hp = target.tts_quantile_opt(i=-1, q=0.5, rng=self.rng)
+        target_boots, target_hp = target.tts_quantile_opt(i=-1, q=0.5, rng=self.rng, boots_hparams=False)
         target_boot_samps = target.boots_samples[-1]  # [*hparams, nR, nL, tf, nboots, instances]
 
         nR = len(self.rho_or_eps)
