@@ -10,6 +10,7 @@ import scipy
 import scipy.stats as stats
 import pandas as pd
 import yaml
+import shutil
 
 import pegasustools as pgt
 from pegasustools.scal import tts
@@ -23,25 +24,26 @@ from matplotlib import cm
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib import rc
-mpl.rcParams['text.usetex'] = True
-rc('font',**{'family':'serif',
-             'serif':['Times', 'Latin Modern Roman', 'Computer Modern Roman', 'Palatino'],
-             'sans-serif'    : ['Helvetica', 'Avant Garde', 'Computer Modern Sans serif'],
-             'cursive'     : ['Zapf Chancery'],
-             'monospace'     : ['Courier', 'Computer Modern Typewriter'],
-             'size': 12
-            })
-plt.rcParams['text.latex.preamble']= \
-    r"""
-    \usepackage{lmodern}
-    \usepackage{amssymb} 
-    \usepackage{amsmath}
-    """
-#mpl.rcParams.update({'text.latex.unicode': True})
+if shutil.which('latex'):
+    mpl.rcParams['text.usetex'] = True
+    rc('font',**{'family':'serif',
+                 'serif':['Times', 'Latin Modern Roman', 'Computer Modern Roman', 'Palatino'],
+                 'sans-serif'    : ['Helvetica', 'Avant Garde', 'Computer Modern Sans serif'],
+                 'cursive'     : ['Zapf Chancery'],
+                 'monospace'     : ['Courier', 'Computer Modern Typewriter'],
+                 'size': 12
+                })
+    plt.rcParams['text.latex.preamble'] = \
+        r"""
+        \usepackage{lmodern}
+        \usepackage{amssymb} 
+        \usepackage{amsmath}
+        """
+    #mpl.rcParams.update({'text.latex.unicode': True})
 
-## for Palatino and other serif fonts use:
-#rc('font',**{'family':'serif','serif':['Times']})
-rc('text', usetex=True)
+    ## for Palatino and other serif fonts use:
+    #rc('font',**{'family':'serif','serif':['Times']})
+    rc('text', usetex=True)
 
 DEFAULT_FIGSIZE=5.0
 DEFAULT_FIGASPECT=1.0
@@ -61,8 +63,30 @@ class PGTMethodBase:
         self.global_cfg = global_cfg
         self.instance_sizes = instance_sizes
 
+    def save_tts_analysis(self, tts_statistics: TTSStatistics, savecsv, instance_sizes, loglin=False,
+                          rho_or_eps=None, save_epsilons=None, **kwargs):
+        if rho_or_eps is None:
+            rho_or_eps = self.rho_or_eps
+        if save_epsilons is None:
+            save_epsilons = list(range(len(rho_or_eps)))
+        if loglin:
+            x = np.asarray(instance_sizes)
+        else:
+            x = np.log10(instance_sizes)
+
+        logging.info(f"Saving TTS data to {savecsv}")
+        _eps_arr = np.concatenate([[rho_or_eps[i]] * len(instance_sizes) for i in save_epsilons])
+        _x_arr = np.concatenate([x] * len(save_epsilons))
+        _y_arr = np.concatenate([tts_statistics.mean[i, :] for i in save_epsilons])
+        _y_err_arr = np.concatenate([tts_statistics.err[i, :] for i in save_epsilons])
+        df = pd.DataFrame(data={'eps': _eps_arr, 'x': _x_arr, 'y': _y_arr, 'yerr': _y_err_arr})
+        if tts_statistics.inf_frac is not None:
+            _inf_frac = np.concatenate([tts_statistics.inf_frac[i, :] for i in save_epsilons])
+            df['inffrac'] = _inf_frac
+        df.to_csv(savecsv)
+
     def plot_tts_analysis(self, tts_statistics: TTSStatistics, instance_sizes, scaling_start=-5, loglin=False, ax=None,
-                          rho_or_eps=None, cl=2.0, savecsv=None,
+                          rho_or_eps=None, cl=2.0,
                           plot_epsilons=None):
         if rho_or_eps is None:
             rho_or_eps = self.rho_or_eps
@@ -75,17 +99,6 @@ class PGTMethodBase:
         loglinres= [stats.linregress(x[scaling_start:],
                                       tts_statistics.mean[i, scaling_start:])
                      for i in plot_epsilons]
-        if savecsv is not None:
-            logging.info(f"Saving TTS data to {savecsv}")
-            _eps_arr = np.concatenate([[rho_or_eps[i]]*len(instance_sizes) for i in plot_epsilons])
-            _x_arr = np.concatenate([x]*len(plot_epsilons))
-            _y_arr = np.concatenate([tts_statistics.mean[i, :] for i in plot_epsilons])
-            _y_err_arr = np.concatenate([tts_statistics.err[i, :] for i in plot_epsilons])
-            df = pd.DataFrame(data={'eps': _eps_arr, 'x': _x_arr, 'y': _y_arr, 'yerr': _y_err_arr})
-            if tts_statistics.inf_frac is not None:
-                _inf_frac = np.concatenate([tts_statistics.inf_frac[i, :] for i in plot_epsilons])
-                df['inffrac'] = _inf_frac
-            df.to_csv(savecsv)
         if ax is None:
             fig = plt.gcf()
             ax = fig.gca()
@@ -285,7 +298,8 @@ class DWMethod(PGTMethodBase):
             return TTSStatistics(opt_tts, opt_tts_err, opt_tts_inf_frac, self.llist, tflist=opt_tts_tf), opt_hparams
 
     def tts_analysis(self, instance_sizes, i=None, q=0.5, rng=None, scaling_start=-5, out_name=None,
-                    figsize=DEFAULT_FIGSIZE, figaspect=DEFAULT_FIGASPECT, loglin=False, **kwargs):
+                    figsize=DEFAULT_FIGSIZE, figaspect=DEFAULT_FIGASPECT, loglin=False, save_epsilons=None,
+                    plot_epsilons=None):
         if out_name is None:
             out_name = self.name
         #tts_statistics, opt_hparams = self.tts_quantile_opt(i=i, q=q, rng=rng, boots_hparams=False)
@@ -298,10 +312,11 @@ class DWMethod(PGTMethodBase):
         tts_statistics = TTSStatistics(opt_tts, log_med_err, log_med_inf/opt_tts_boots.shape[-1], self.llist, tflist=avg_opt_tf)
         fig = plt.figure(figsize=(figsize*figaspect, figsize))
         ax = plt.subplot()
-        self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax,
-                               loglin=loglin,
-                               savecsv=self.out_dir / f"dw_{out_name}_q{q:4.3f}_tts_scaling.csv",
-                               **kwargs)
+        if plot_epsilons is not None:
+            self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax,
+                                   loglin=loglin, plot_epsilons=plot_epsilons)
+        self.save_tts_analysis(tts_statistics, self.out_dir / f"dw_{out_name}_q{q:4.3f}_tts_scaling.csv", instance_sizes,
+                               loglin=loglin, save_epsilons=save_epsilons)
 
         if loglin:
             plt.xlabel('$N$')
@@ -364,17 +379,18 @@ class MCMethod(PGTMethodBase):
 
     def tts_analysis(self, instance_sizes, nboots, q=0.5, rng: np.random.Generator = None,
                      scaling_start=-5, figsize=DEFAULT_FIGSIZE, figaspect=DEFAULT_FIGASPECT, out_name=None,
-                     loglin=False,
-                     **kwargs):
+                     loglin=False, save_epsilons=None, plot_epsilons=None,):
         if out_name is None:
             out_name = self.name
         tts_statistics = self.tts_quantile(nboots, q=q, rng=rng)
 
         fig = plt.figure(figsize=(figsize*figaspect, figsize))
         ax = plt.subplot()
-        self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax, loglin=loglin,
-                               savecsv=self.out_dir / f"{out_name}_q{q:4.3f}_tts_scaling.csv",
-                               **kwargs)
+        if plot_epsilons is not None:
+            self.plot_tts_analysis(tts_statistics, instance_sizes, scaling_start=scaling_start, ax=ax, loglin=loglin,
+                                   )
+        self.save_tts_analysis(tts_statistics, self.out_dir / f"{out_name}_q{q:4.3f}_tts_scaling.csv",
+                               instance_sizes, loglin=loglin, save_epsilons=save_epsilons)
         if loglin:
             plt.xlabel('$N$')
         else:
@@ -426,6 +442,7 @@ class PGTScalingAnalysis:
             self.rhos = None
             logging.info(f"Using absolute epsilons:\n{self.rho_or_eps}")
         self.plot_epsilons = cfg.get('plot_epsilons', None)
+        self.save_epsilons = cfg.get('save_epsilons', None)
         # Initialize RNG and bootstrap data
         self.rand_seed = cfg.get('random_seed', 0)
         if self.rand_seed is None or self.rand_seed == 0:
@@ -488,16 +505,19 @@ class PGTScalingAnalysis:
                 s = self.mc_samplers[sampler_name]
                 logging.info(f"{name}")
                 plot_epsilons = _cfg.get("plot_epsilons", self.plot_epsilons)
+                save_epsilons = _cfg.get("save_epsilons", self.save_epsilons)
                 loglin = _cfg.get("loglin", False)
                 s.tts_analysis(self.instance_sizes, self.n_boots, q=0.5, rng=self.rng,
-                               scaling_start=-5, out_name=name, loglin=loglin, plot_epsilons=plot_epsilons)
+                               scaling_start=-5, out_name=name, loglin=loglin, plot_epsilons=plot_epsilons,
+                               save_epsilons=save_epsilons)
             elif sampler_name in self.dw_samplers:
                 s = self.dw_samplers[sampler_name]
                 logging.info(f"{name}")
                 plot_epsilons = _cfg.get("plot_epsilons", self.plot_epsilons)
+                save_epsilons = _cfg.get("save_epsilons", self.save_epsilons)
                 loglin = _cfg.get("loglin", False)
                 s.tts_analysis(self.instance_sizes, q=0.5, rng=self.rng,
-                               scaling_start=-5, out_name=name, loglin=loglin, plot_epsilons=plot_epsilons)
+                               scaling_start=-5, out_name=name, loglin=loglin, plot_epsilons=plot_epsilons, save_epsilons=save_epsilons)
             else:
                 logging.info(f"Unrecognized sampler {sampler_name}")
 
@@ -559,14 +579,17 @@ class PGTScalingAnalysis:
                 reference_name = v['reference']
                 target_name = v['target']
                 plot_epsilons = v.get('plot_epsilons', self.plot_epsilons)
+                save_epsilons = v.get('save_epsilons', self.save_epsilons)
                 if reference_name in self.mc_samplers and target_name in self.dw_samplers:
                     fig = plt.figure(figsize=(self.figsize*self.figaspect, self.figsize))
                     ax = plt.subplot()
                     tts_statistics, speedup_array = self.mc2q_speedup(reference_name, target_name)
                     _, loglinres = self.dw_samplers[target_name].plot_tts_analysis(
                         tts_statistics, self.instance_sizes, scaling_start=-5,
-                        savecsv=self.out_dir / f"speedup_{name}_q{0.5:4.3f}.csv",
                         ax=ax, plot_epsilons=plot_epsilons)
+                    self.dw_samplers[target_name].save_tts_analysis(
+                        tts_statistics, self.out_dir / f"speedup_{name}_q{0.5:4.3f}.csv",
+                        self.instance_sizes, save_epsilons=save_epsilons)
                     plt.xlabel('$\\log_{10} N$')
                     plt.ylabel('$\\log_{10} \\mathrm{Speedup} $')
                     plt.legend(loc='lower left', ncol=2)
@@ -577,8 +600,10 @@ class PGTScalingAnalysis:
                     tts_statistics, speedup_array = self.q2q_speedup(reference_name, target_name)
                     _, loglinres = self.dw_samplers[target_name].plot_tts_analysis(
                         tts_statistics, self.instance_sizes,scaling_start=-5,
-                        savecsv=self.out_dir / f"speedup_{name}_q{0.5:4.3f}.csv",
                         ax=ax, plot_epsilons=plot_epsilons)
+                    self.dw_samplers[target_name].save_tts_analysis(
+                        tts_statistics, self.out_dir / f"speedup_{name}_q{0.5:4.3f}.csv",
+                        self.instance_sizes, save_epsilons=save_epsilons)
                     plt.xlabel('$\\log_{10} N$')
                     plt.ylabel('$\\log_{10} \\mathrm{Speedup} $')
                     plt.legend(loc='lower left', ncol=2)
@@ -595,6 +620,8 @@ def main():
     args = parser.parse_args()
     # initialize logging
     logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s - %(message)s')
+    if mpl.rcParams['text.usetex']:
+        logging.info("Enabled latex for mpl")
     # load config file
     config_file = args.config_yaml
     pgt_analysis = PGTScalingAnalysis(config_file)
