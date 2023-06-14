@@ -147,7 +147,8 @@ class DWMethod(PGTMethodBase):
         method_cfg.pop('file_pattern')  # self.file_pattern
         if 'offset' in method_cfg:
             method_cfg.pop('offset')
-        self.annealing_times = method_cfg.pop('annealing_times')
+        self.annealing_times_str = method_cfg.pop('annealing_times')
+        self.annealing_times = [float(tf) for tf in self.annealing_times_str]
         self.hyperparams = method_cfg
         self.num_hp = len(self.hyperparams)
         out_dir = Path(global_cfg['out_dir'])
@@ -169,7 +170,7 @@ class DWMethod(PGTMethodBase):
                 logging.info(f"{HP}")
                 dw_hp_results = DWaveInstanceResults(
                     self.directory+self.file_pattern, self.gs_energies,
-                    self.llist, self.annealing_times, idxlist=self.idxlist,
+                    self.llist, self.annealing_times_str, idxlist=self.idxlist,
                     gauges=None, samps_per_gauge=None,
                     epsilons=self.rho_or_eps, relative=self.relative_epsilon,
                     qac=False, fmt_kwargs=hp_dict)
