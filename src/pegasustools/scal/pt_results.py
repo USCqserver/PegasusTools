@@ -319,6 +319,18 @@ class TimeToSolutionPT:
         self.cross_idx = pticm_dict['cross_idx']
 
 
+def samp_boots_log_tts(pticm_tts: dict, l_list, q=0.5, n_boots=100, random_state=None):
+    pticm_tts_log_med_lst = []
+    for l in l_list:
+        opt_tts_arr = pticm_tts[l]['opt_tts'][:, np.newaxis, :]  # [nR, 1, instance]
+        ttsl = boots_percentile(np.log10(opt_tts_arr), q,
+                             n_boots=n_boots, rng=random_state)  # [nR, n_boots]
+        pticm_tts_log_med_lst.append(ttsl)
+    pticm_tts_log_med = np.stack(pticm_tts_log_med_lst, axis=-2)  # [nR, nL, n_boots]
+
+    return pticm_tts_log_med
+
+
 def eval_boots_log_tts(pticm_tts: dict, l_list, q=0.5, n_boots=100, random_state=None):
     pticm_tts_log_med_lst = []
     pticm_tts_log_med_err_lst = []

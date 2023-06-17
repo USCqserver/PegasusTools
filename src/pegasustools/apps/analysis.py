@@ -16,7 +16,7 @@ import pegasustools as pgt
 from pegasustools.scal import tts
 from pegasustools.scal.dw_results import read_dw_results2, DWaveInstanceResults
 from pegasustools.scal.pt_results import import_pticm_dat, import_pticm_dat2, read_gs_energies, TamcPtResults, \
-    read_tamc_bin, import_pticm_dat_from_pkls, eval_boots_log_tts
+    read_tamc_bin, import_pticm_dat_from_pkls, eval_boots_log_tts, samp_boots_log_tts
 from pegasustools.scal.stats import boots_median, boots_percentile, pgs_bootstrap, reduce_mean, reduce_median, \
     TTSStatistics
 
@@ -49,10 +49,13 @@ DEFAULT_FIGSIZE=5.0
 DEFAULT_FIGASPECT=1.0
 
 class PGTMethodBase:
-    def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg, instance_sizes, rhos=None):
+    def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg, instance_sizes, rhos=None,
+                 require_dir=True):
         self.name = name
-        self.directory = method_cfg['directory']
-        self.file_pattern = method_cfg['file_pattern']
+        self.directory = method_cfg.get('directory', None)
+        self.file_pattern = method_cfg.get('file_pattern', None)
+        if require_dir and (self.directory is None or self.file_pattern is None):
+            raise ValueError(f"Both 'directory' and 'file_pattern' keys are required.")
         self.offset = method_cfg.get('offset', 0.0)
         self.llist = llist
         self.idxlist = idxlist
@@ -332,9 +335,9 @@ class DWMethod(PGTMethodBase):
 
 class MCMethod(PGTMethodBase):
     def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg, instance_sizes,
-                 rhos=None):
+                 rhos=None, opt_mc: List[PGTMethodBase]=None):
         super(MCMethod, self).__init__(name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative,
-                                       global_cfg,instance_sizes, rhos=rhos)
+                                       global_cfg,instance_sizes, rhos=rhos, require_dir=(opt_mc is None))
 
         out_dir = Path(global_cfg['out_dir'])
         self.out_dir = out_dir
@@ -342,35 +345,58 @@ class MCMethod(PGTMethodBase):
 
         self.tts_out_file = tts_out_file  # Save file for all TTS data
         self.tts_samp_file = out_dir / f'mc_{self.name}_tts_samp.npz'  # save file for bootstrapped TTS samples
-        if tts_out_file.is_file() and not global_cfg['overwrite']:
-            logging.info(f"Loading TTS data from {tts_out_file}.")
-            with open(tts_out_file, 'rb') as f:
-                pticm_tts_res = pickle.load(f)
+
+        if opt_mc is not None:
+            self.tts_data = opt_mc
+            logging.info(f"Performing qualitative optimization over {[x.name for x in opt_mc]}")
         else:
-            logging.info("Processing TTS Data... ")
+            if tts_out_file.is_file() and not global_cfg['overwrite']:
+                logging.info(f"Loading TTS data from {tts_out_file}.")
+                with open(tts_out_file, 'rb') as f:
+                    pticm_tts_res = pickle.load(f)
+            else:
+                logging.info("Processing TTS Data... ")
 
-            pticm_tts_res = {}
-            for i, l in enumerate(llist):
-                logging.info(f"L={l}")
-                pticm_tts_res[l] = import_pticm_dat_from_pkls(
-                    self.directory + self.file_pattern, idxlist, gs_energies[i, :], list(rho_or_eps),
-                    absolute=not relative, tol=1.0e-4, maxsweeps=2 ** 31,
-                    fmt_kwargs={'l': l})
+                pticm_tts_res = {}
+                for i, l in enumerate(llist):
+                    logging.info(f"L={l}")
+                    pticm_tts_res[l] = import_pticm_dat_from_pkls(
+                        self.directory + self.file_pattern, idxlist, gs_energies[i, :], list(rho_or_eps),
+                        absolute=not relative, tol=1.0e-4, maxsweeps=2 ** 31,
+                        fmt_kwargs={'l': l})
 
-            with open(tts_out_file, 'wb') as f:
-                print(f"Saving to {tts_out_file}")
-                pickle.dump(pticm_tts_res, f)
+                with open(tts_out_file, 'wb') as f:
+                    print(f"Saving to {tts_out_file}")
+                    pickle.dump(pticm_tts_res, f)
 
         self.tts_data = pticm_tts_res
 
     def opt_tts_arr(self):
-        opt_tts_list = []
-        for l in self.llist:
-            opt_tts_list.append(self.tts_data[l]['opt_tts'][:, np.newaxis, :])  # [nR, 1, instances]
+        if isinstance(self.tts_data, List):
+            # create the array for the optimal TTS for each instance across the different parameter categories
+            opt_tts_arr_all = [s.opt_tts_arr() for s in self.tts_data]
+            opt_tts_arr = np.stack(opt_tts_arr_all, axis=0) # [nP, nR, nL, 1, instances]
+            ninstances = opt_tts_arr.shape[-1]
+            # Optimize the hyperparameters array over each instance
+            out_shape1 = (len(self.rho_or_eps), len(self.llist), ninstances)
+            opt_tts = np.zeros(out_shape1)  # [nR, nL, instances]
+            opt_hparams = np.zeros(out_shape1, dtype=int)
+            for i in range(len(self.rho_or_eps)):
+                for li in range(len(self.llist)):
+                    for j in range(ninstances):
+                        arr = opt_tts_arr[:, i, li, 0, j]
+                        med_amin = np.ma.argmin(arr, axis=None)
+                        idx_amin = np.unravel_index(med_amin, arr.shape)
+                        opt_tts[i, li, j] = arr[idx_amin]
+                        opt_hparams[i, li, j] = np.asarray([*idx_amin])
+        else:
+            opt_tts_list = []
+            for l in self.llist:
+                opt_tts_list.append(self.tts_data[l]['opt_tts'][:, np.newaxis, :])  # [nR, 1, instances]
 
-        opt_tts_arr = np.stack(opt_tts_list, axis=1)  # [nR, nL, 1, instances]
-        opt_tts_arr = np.log10(opt_tts_arr)
-        return opt_tts_arr
+            opt_tts_arr = np.stack(opt_tts_list, axis=1)  # [nR, nL, 1, instances]
+            opt_tts_arr = np.log10(opt_tts_arr)
+            return opt_tts_arr
 
     def tts_quantile(self, nboots, q=0.5, rng: np.random.Generator = None):
 
@@ -399,6 +425,13 @@ class MCMethod(PGTMethodBase):
         plt.ylabel('$\\log_{10}$ TTE ($\\mu s$)')
         plt.legend(ncol=2)
         plt.savefig(self.out_dir / f"{out_name}_q{q:4.3f}_tts_scaling.pdf")
+
+
+def mc_multi_opt_tts(mc_samplers: List[MCMethod], nboots, q=0.5, rng: np.random.Generator = None):
+    names = [s.name for s in mc_samplers]
+    tts_med_samps = []
+    for s in mc_samplers:
+        tts_med_samps.append(samp_boots_log_tts(s.tts_data, s.llist, q=q, n_boots=nboots, random_state=rng))
 
 
 class PGTScalingAnalysis:
@@ -484,6 +517,9 @@ class PGTScalingAnalysis:
         for k, v in mc_samplers.items():
             self.mc_samplers[k] = MCMethod(k, v, self.gs_energies, self.llist, self.idxlist, self.rho_or_eps,
                                              self.relative_epsilon, self.cfg, self.instance_sizes, rhos=self.rhos)
+        opt_mc_samplers = self.cfg.get('mc_opt_groups')
+        for k, v in opt_mc_samplers:
+            pass
 
     def load_dw_sampler_data(self):
         # Read the quantum samplers configurations
