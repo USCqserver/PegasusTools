@@ -309,6 +309,7 @@ def main():
                         help="Minimum size of a clause (for clause-based instances)")
     parser.add_argument("--range", type=float, default=9.0,
                         help="Maximum weight of any single coupling/disjunction summed over all clauses.")
+    parser.add_argument("--u-range", type=int, default=3)
     parser.add_argument("--rejection-iters", type=int, default=1000,
                         help="If a generated instance must satisfy some constraint, the number of allowed attempts "
                         "to reject an instance generate a new one.")
@@ -348,7 +349,7 @@ def main():
     parser.add_argument("topology", type=str, help="Text file specifying graph topology."
                                                    " Ignored if the instance class generates its own graph.")
     parser.add_argument("instance_class",
-                        choices=["fm", "fl", "r3", "bsg", "wis", "r1d", "s7", "s28", "mis"],
+                        choices=["fm", "un", "fl", "r3", "bsg", "wis", "r1d", "s7", "s28", "mis"],
                         help="Instance class to generate")
     parser.add_argument("dest", type=str,
                         help="Save file for the instance specification in Ising adjacency format")
@@ -454,6 +455,8 @@ def main():
     # Generic random instances (no gs energy is known)
     if args.instance_class == "r3":
         g2 = random_couplings(g, rng)
+    elif args.instance_class == "un":
+        g2 = random_spin_glass(g, list(range(1, args.u_range+1)), rng)
     elif args.instance_class == "bsg":
         g2 = binomial_spin_glass(g, rng)
     elif args.instance_class == "s28":
