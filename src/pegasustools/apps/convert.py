@@ -6,6 +6,7 @@ import dimod
 from pegasustools.util.adj import read_ising_adjacency, save_ising_instance_graph
 from dimod.serialization import coo
 from dimod import lp, ConstrainedQuadraticModel, BinaryQuadraticModel
+import pegasustools.util.lp as pgt_lp
 
 
 def main():
@@ -48,7 +49,7 @@ def main():
         bqm.change_vartype(dimod.BINARY, inplace=True)
         cqm = ConstrainedQuadraticModel.from_quadratic_model(bqm)
         with open(output_file, 'w') as f:
-            lp.dump(cqm, f)
+            pgt_lp.dump(cqm, f)
     else:
         raise ValueError(f"Invalid writing format {args.o}.")
 
