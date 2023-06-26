@@ -2,7 +2,7 @@ import argparse
 import pathlib
 
 import dimod
-
+import numpy as np
 from pegasustools.util.adj import read_ising_adjacency, save_ising_instance_graph
 from dimod.serialization import coo
 from dimod import lp, ConstrainedQuadraticModel, BinaryQuadraticModel
@@ -15,7 +15,7 @@ def main():
     parser.add_argument("output_file")
     parser.add_argument("-i", choices=['coo', 'isn', 'qubo', 'lp'], required=True)
     parser.add_argument("-o", choices=['coo', 'isn', 'qubo', 'lp'], required=True)
-
+    parser.add_argument("--lp-break-sym", action='store_true')
     args = parser.parse_args()
 
     input_file = pathlib.Path(args.input_file)
@@ -38,6 +38,12 @@ def main():
     else:
         raise ValueError(f"Invalid reading format {args.i}.")
 
+    lin_terms = np.asarray([d for d in bqm.linear.values()])
+    if len(bqm.linear) == 0 or np.all(np.equal(lin_terms, 0.0)):
+        symmetric = True
+    else:
+        symmetric = False
+
     if args.o == 'coo':
         with open(output_file, 'w') as f:
             coo.dump(bqm, f)
@@ -46,10 +52,17 @@ def main():
         save_ising_instance_graph(dimod.to_networkx_graph(bqm), output_file)
     elif args.o == 'lp':
         bqm.relabel_variables({i: f"b{i}" for i in bqm.variables}, inplace=True)
+
         bqm.change_vartype(dimod.BINARY, inplace=True)
         cqm = ConstrainedQuadraticModel.from_quadratic_model(bqm)
+        if args.lp_break_sym:
+            if symmetric:
+                cqm.add_constraint_from_iterable([('b0', 1)], '<=', rhs=0)
+            else:
+                print(f"Ignored --lp-break-sym flag.")
         with open(output_file, 'w') as f:
             pgt_lp.dump(cqm, f)
+
     else:
         raise ValueError(f"Invalid writing format {args.o}.")
 
