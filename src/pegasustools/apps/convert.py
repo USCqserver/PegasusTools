@@ -57,7 +57,8 @@ def main():
         cqm = ConstrainedQuadraticModel.from_quadratic_model(bqm)
         if args.lp_break_sym:
             if symmetric:
-                cqm.add_constraint_from_iterable([('b0', 1)], '<=', rhs=0)
+                half_n = len(bqm.variables)/2.0
+                cqm.add_constraint_from_iterable([(v, 1) for v in bqm.variables], '<=', rhs=half_n)
             else:
                 print(f"Ignored --lp-break-sym flag.")
         with open(output_file, 'w') as f:
