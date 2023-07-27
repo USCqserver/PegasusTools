@@ -5,7 +5,7 @@ import yaml
 import pickle
 import pathlib as path
 from typing import List, Dict
-from . import tts
+from . import tts, EpsilonType
 from .stats import reduce_mean, boots_percentile, TTSStatistics
 
 
@@ -80,22 +80,27 @@ def read_gs_energies(instance_template: str, l_list,  idx_list ):
     return gs_energies
 
 
-def optimal_tts_dist(tf, nts_arr, nsweeps, ndiscard=1):
+def optimal_tts_dist(tf, nts_arr, nsweeps, z=1, ndiscard=1):
     """
     Evaluate the optimal time-to-solution
     Special case if len(nts_arr) == 1: simply return (nsweeps, tf, 0) for one-shoot TTS evaluation
     :param tf:
     :param nts_arr:
     :param nsweeps:
-    :param ndiscard:
+    :param z: pseudocount. The empirical Pgs is calculated as
+        Pgs = (i + z) / (nsamps + z)
+    :param ndiscard: ignore the last ndiscard tts values when finding the optimal tts
     :return:
     """
     nsamps = len(nts_arr)
     if nsamps > 1:
         # Optimal time-to solution by CDF estimate
         # where pgs_arr[0] =  1/(nsamps+1)... pgs_arr[nsamps-1] = (nsamps)/(nsamps+1)
-        pgs_arr = np.arange(1, nsamps + 1) / (nsamps + 1)
         ts_raw = tf * nts_arr / nsweeps
+        ts_sort_idx = np.argsort(ts_raw)
+        ts_raw = ts_raw[ts_sort_idx]
+
+        pgs_arr = np.arange(1, nsamps + z) / (nsamps + z)
         pgs_arr = pgs_arr[:nsamps-ndiscard]
         ts_raw = ts_raw[:nsamps-ndiscard]
         tts_arr = tts(pgs_arr, ts_raw)
@@ -157,22 +162,27 @@ def read_nts_dist(file_fmt, num_reps, gs_energy, reps=0.0, tol=1.0e-4):
     return reps_results
 
 
-def _read_nts_dist(pt_res_list: List[TamcPtResults], gs_energy, rhos_list, tol=1.0e-4,
-                   maxsweeps=2**31-1, absolute=False):
+def _read_nts_dist(pt_res_list: List[TamcPtResults], gs_energy, rho_or_eps, epsilon_type: EpsilonType, tol=1.0e-4,
+                   maxsweeps=2**31-1):
     num_reps = len(pt_res_list)
     nsweeps = None
     reps_results = {'opt_sweeps': [], 'avg_t': [], 'opt_tts': [], 'opt_tts_idx': [], 'cross_idxs': []}
-    for rho in rhos_list:
+    for res_tgt in rho_or_eps:
         nts_list = []
         time_list = []
         cross_idx_list = []
         for r in range(num_reps):
             pt_res = pt_res_list[r]
-            if absolute:
-                eps = rho
+            if epsilon_type == EpsilonType.ABSOLUTE:
+                eps = res_tgt
+                rel_eps = 0.0
+            elif epsilon_type == EpsilonType.RELATIVE:
+                eps = 0.0
+                rel_eps = res_tgt
             else:
-                eps = rho * pt_res.instance_size
-            nts, cross_idx = pt_res.cross_time(gs_energy, epsilon=eps, tol=tol, maxsweeps=maxsweeps)
+                eps = res_tgt * pt_res.instance_size
+                rel_eps = 0.0
+            nts, cross_idx = pt_res.cross_time(gs_energy, epsilon=eps, reps=rel_eps, tol=tol, maxsweeps=maxsweeps)
             cross_idx_list.append(cross_idx)
             t = pt_res.timing
             nts_list.append(nts)
@@ -182,9 +192,9 @@ def _read_nts_dist(pt_res_list: List[TamcPtResults], gs_energy, rhos_list, tol=1
         time_arr = np.asarray(time_list)
         avg_t = np.mean(time_arr) / nsweeps
         nts_arr = np.asarray(nts_list)
-
-        nts_arr = np.sort(nts_arr)[:num_reps - 1]
-        time_arr = np.sort(time_arr)[:num_reps - 1]
+        #nts_sort_idx = np.argsort(nts_arr)
+        #nts_arr = nts_arr[nts_sort_idx]
+        #time_arr = time_arr[nts_sort_idx]
 
         opt_sweeps, opt_tts, opt_tts_idx = optimal_tts_dist(time_arr, nts_arr, nsweeps)
 
@@ -198,27 +208,7 @@ def _read_nts_dist(pt_res_list: List[TamcPtResults], gs_energy, rhos_list, tol=1
     return reps_results
 
 
-def read_nts_dist2(file_fmt, num_reps, gs_energy, rhos=0.0, tol=1.0e-4, absolute=False):
-    """
-    Evaluate optimal time-to-solution
-    """
-
-    if rhos is not None:
-        if not isinstance(rhos, list):
-            rhos_list = [rhos]
-        else:
-            rhos_list = rhos
-    else:
-        raise ValueError("rhos must not be None")
-
-    pt_res_list = []
-    for r in range(num_reps):
-        pt_res_list.append(TamcPtResults(file=file_fmt.format(r=r), quick_read=False))
-
-    return _read_nts_dist(pt_res_list, gs_energy, rhos_list, tol=tol, absolute=absolute)
-
-
-def read_nts_dist_from_pkl(pkl_file, gs_energy, rhos=0.0, tol=1.0e-4, maxsweeps=2**31-1, absolute=False):
+def read_nts_dist_from_pkl(pkl_file, gs_energy, epsilon_type: EpsilonType, rhos=0.0, tol=1.0e-4, maxsweeps=2**31-1, absolute=False):
     """
     Evaluate optimal time-to-solution
     """
@@ -237,41 +227,12 @@ def read_nts_dist_from_pkl(pkl_file, gs_energy, rhos=0.0, tol=1.0e-4, maxsweeps=
     for r, d in enumerate(all_pkl):
         pt_res_list.append(TamcPtResults(from_dict=d, quick_read=False))
 
-    return _read_nts_dist(pt_res_list, gs_energy, rhos_list, tol=tol, maxsweeps=maxsweeps, absolute=absolute)
+    return _read_nts_dist(pt_res_list, gs_energy, rhos_list, epsilon_type, tol=tol, maxsweeps=maxsweeps)
 
 
-def import_pticm_dat(file_fmt, idxlist, gs_energies, reps=100, r_eps=0.0, tol=1.0e-4, maxsweeps=2 ** 31):
-    pticm_dict = {'opt_sweeps': [],'avg_t': [] ,'opt_tts': [], 'opt_tts_idx': [], 'cross_idxs': []}
-    for i, n in enumerate(idxlist):
-        gs_e = gs_energies[i]
-        reps_results = read_nts_dist(file_fmt.format(n=n), reps, gs_e,
-                                     reps=r_eps, tol=tol)
-        for k in pticm_dict.keys():
-            pticm_dict[k].append(np.asarray(reps_results[k]))
 
-    for k in pticm_dict.keys():
-        pticm_dict[k] = np.stack(pticm_dict[k], axis=1)
-
-    return pticm_dict
-
-
-def import_pticm_dat2(file_fmt, idxlist, gs_energies, reps=100, rhos=0.0, tol=1.0e-4, maxsweeps=2 ** 31, absolute=False):
-    pticm_dict = {'opt_sweeps': [],'avg_t': [] ,'opt_tts': [], 'opt_tts_idx': [], 'cross_idxs': []}
-    for i, n in enumerate(idxlist):
-        gs_e = gs_energies[i]
-        reps_results = read_nts_dist2(file_fmt.format(n=n), reps, gs_e,
-                                      rhos=rhos, tol=tol, absolute=absolute)
-        for k in pticm_dict.keys():
-            pticm_dict[k].append(np.asarray(reps_results[k]))
-
-    for k in pticm_dict.keys():
-        pticm_dict[k] = np.stack(pticm_dict[k], axis=1)
-
-    return pticm_dict
-
-
-def import_pticm_dat_from_pkls(file_fmt, idxlist, gs_energies, epsilons=0.0, tol=1.0e-4,
-                               maxsweeps=2 ** 31, absolute=False, fmt_kwargs=None):
+def import_pticm_dat_from_pkls(file_fmt, idxlist, gs_energies, epsilon_type: EpsilonType, epsilons=0.0, tol=1.0e-4,
+                               maxsweeps=2 ** 31, fmt_kwargs=None):
     """
 
     :param file_fmt: pickle files with PT-ICM output data. Should be a format string with placeholder {n}, wher
@@ -290,8 +251,8 @@ def import_pticm_dat_from_pkls(file_fmt, idxlist, gs_energies, epsilons=0.0, tol
     pticm_dict = {'opt_sweeps': [],'avg_t': [] ,'opt_tts': [], 'opt_tts_idx': [], 'cross_idxs': []}
     for i, n in enumerate(idxlist):
         gs_e = gs_energies[i]
-        reps_results = read_nts_dist_from_pkl(file_fmt.format(n=n, **fmt_kwargs), gs_e,
-                                      rhos=epsilons, tol=tol, maxsweeps=maxsweeps, absolute=absolute)
+        reps_results = read_nts_dist_from_pkl(file_fmt.format(n=n, **fmt_kwargs), gs_e, epsilon_type,
+                                      rhos=epsilons, tol=tol, maxsweeps=maxsweeps)
         for k in pticm_dict.keys():
             pticm_dict[k].append(np.asarray(reps_results[k]))
 
@@ -302,15 +263,15 @@ def import_pticm_dat_from_pkls(file_fmt, idxlist, gs_energies, epsilons=0.0, tol
 
 
 class TimeToSolutionPT:
-    def __init__(self, pkl_file_fmt, idxlist, gs_energies, epsilons=0.0, tol=1.0e-4, maxsweeps=2 ** 31, absolute=False):
+    def __init__(self, pkl_file_fmt, idxlist, gs_energies, epsilon_type: EpsilonType,epsilons=0.0, tol=1.0e-4, maxsweeps=2 ** 31):
         self.idxlist = idxlist
         self.gs_energies = gs_energies
         self.epsilons = epsilons
         self.tol = tol
         self.maxsweeps = maxsweeps
-        self.absolute = absolute
-        pticm_dict = import_pticm_dat_from_pkls(pkl_file_fmt, idxlist, gs_energies,  epsilons=epsilons, tol=tol,
-                                                maxsweeps=maxsweeps, absolute=absolute)
+        self.epsilon_type = epsilon_type
+        pticm_dict = import_pticm_dat_from_pkls(pkl_file_fmt, idxlist, gs_energies, epsilon_type,  epsilons=epsilons, tol=tol,
+                                                maxsweeps=maxsweeps)
         self.reps = len(pticm_dict['opt_tts'])
         self.opt_sweeps = pticm_dict['opt_sweeps']
         self.avg_t = pticm_dict['avg_t']
