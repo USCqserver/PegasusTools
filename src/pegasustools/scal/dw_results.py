@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from pegasustools.scal import tts
+from pegasustools.scal import tts, EpsilonType
 from pegasustools.scal.stats import eval_pgs_tts, pgs_bootstrap, reduce_mean, boots_percentile, TTSStatistics
 
 
@@ -200,7 +200,7 @@ def read_dw_results2(file_template, rhos_list, l_list, tf_list, idx_list, gauges
 
 
 def read_dw_results3(file_template, eps_list, l_list, tf_list, idx_list, gauges,
-                    gs_energies, err_p=False, relative_eps=False, fmt_kwargs=None):
+                     gs_energies, err_p=False, epsilon_type=EpsilonType.ABSOLUTE, fmt_kwargs=None):
     """
 
     :param file_template:  Formattable string including {l}, {n}, and {tf}
@@ -232,13 +232,18 @@ def read_dw_results3(file_template, eps_list, l_list, tf_list, idx_list, gauges,
                     print(f" ** Failed to read DwRes from {filestr}")
                     print(e)
                     continue
-                if relative_eps and instance_size is None:
+                if epsilon_type == EpsilonType.RESIDUAL and instance_size is None:
                     instance_size = len(dw_res.load_samples().columns)
-                if relative_eps:
+                if epsilon_type == EpsilonType.RESIDUAL:
                     eps_arr = np.asarray(eps_list) * instance_size
+                    reps = [0.0] * len(eps_list)
+                elif epsilon_type == EpsilonType.RELATIVE:
+                    reps = np.asarray(eps_list)
+                    eps_arr = [0.0] * len(eps_list)
                 else:
                     eps_arr = np.asarray(eps_list)
-                pgs_arr[:, i, j, k, :] = dw_res.pgs_by_gauge(eps=eps_arr, reps=[0.0]*len(eps_list))
+                    reps = [0.0] * len(eps_list)
+                pgs_arr[:, i, j, k, :] = dw_res.pgs_by_gauge(eps=eps_arr, reps=reps)
                 if err_p:
                     errp_arr[i, j, k, :] = dw_res.error_p_by_gauge()
 
@@ -341,7 +346,7 @@ class DWaveInstanceResults:
     """
     def __init__(self, path_fmt, gs_energies, llist, tflist, idxlist,
                  gauges=None, samps_per_gauge=None,
-                 epsilons=None, relative=False, qac=False, fmt_kwargs=None):
+                 epsilons=None, epsilon_type=False, qac=False, fmt_kwargs=None):
         if fmt_kwargs is None:
             fmt_kwargs = {}
         self.path_fmt = path_fmt
@@ -367,7 +372,7 @@ class DWaveInstanceResults:
         self.qac = qac
         self.fmt_kwargs = fmt_kwargs
 
-        self.relative = relative
+        self.relative = epsilon_type
         if epsilons is None:
             self.epsilons = np.asarray([0.0])
         else:
@@ -376,7 +381,7 @@ class DWaveInstanceResults:
     def load(self):
         if self.success_probs is None:
             _read_dwres = read_dw_results3(self.path_fmt, self.epsilons, self.llist, self.tflist,
-                                           self.idxlist, self.gauges, self.gs_energies, self.qac, relative_eps=self.relative,
+                                           self.idxlist, self.gauges, self.gs_energies, self.qac, epsilon_type=self.relative,
                                            fmt_kwargs=self.fmt_kwargs)
             if self.qac:
                 self.success_probs, self.qac_error_probs = _read_dwres

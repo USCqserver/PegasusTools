@@ -1,4 +1,3 @@
-import sys
 from pathlib import Path
 import logging
 import argparse
@@ -13,9 +12,9 @@ import yaml
 import shutil
 
 import pegasustools as pgt
-from pegasustools.scal import tts
+from pegasustools.scal import tts, EpsilonType
 from pegasustools.scal.dw_results import read_dw_results2, DWaveInstanceResults
-from pegasustools.scal.pt_results import import_pticm_dat, import_pticm_dat2, read_gs_energies, TamcPtResults, \
+from pegasustools.scal.pt_results import read_gs_energies, TamcPtResults, \
     read_tamc_bin, import_pticm_dat_from_pkls, eval_boots_log_tts
 from pegasustools.scal.stats import boots_median, boots_percentile, pgs_bootstrap, reduce_mean, reduce_median, \
     TTSStatistics
@@ -48,8 +47,9 @@ if shutil.which('latex'):
 DEFAULT_FIGSIZE=5.0
 DEFAULT_FIGASPECT=1.0
 
+
 class PGTMethodBase:
-    def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg, instance_sizes, rhos=None):
+    def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, epsilon_type, global_cfg, instance_sizes, rhos=None):
         self.name = name
         self.directory = method_cfg['directory']
         self.file_pattern = method_cfg['file_pattern']
@@ -59,7 +59,7 @@ class PGTMethodBase:
         self.gs_energies = gs_energies
         self.rhos = rhos
         self.rho_or_eps = rho_or_eps
-        self.relative_epsilon = relative
+        self.epsilon_type = epsilon_type
         self.global_cfg = global_cfg
         self.instance_sizes = instance_sizes
 
@@ -104,8 +104,10 @@ class PGTMethodBase:
             ax = fig.gca()
         for i, res in zip(plot_epsilons, loglinres):
             eps = rho_or_eps[i]
-            if self.relative_epsilon:
-                label = f"$\\rho={self.rhos[i] * 100:3.2f}\%$"
+            if self.epsilon_type == EpsilonType.RESIDUAL:
+                label = f"$\\rho={self.rhos[i] * 100:3.2f}\\%$"
+            elif self.epsilon_type == EpsilonType.RELATIVE:
+                label = f"$\\varepsilon={eps * 100:3.2f}\\%$"
             else:
                 label = f"$\\varepsilon={eps}$"
 
@@ -138,9 +140,9 @@ class PGTMethodBase:
 
 
 class DWMethod(PGTMethodBase):
-    def __init__(self, name, method_cfg: dict, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg,
+    def __init__(self, name, method_cfg: dict, gs_energies, llist, idxlist, rho_or_eps, epsilon_type, global_cfg,
                  instance_sizes, rhos=None):
-        super(DWMethod, self).__init__(name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg,
+        super(DWMethod, self).__init__(name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, epsilon_type, global_cfg,
                                        instance_sizes, rhos=rhos)
 
         method_cfg.pop('directory')  # self.directory
@@ -172,7 +174,7 @@ class DWMethod(PGTMethodBase):
                     self.directory+self.file_pattern, self.gs_energies,
                     self.llist, self.annealing_times_str, idxlist=self.idxlist,
                     gauges=None, samps_per_gauge=None,
-                    epsilons=self.rho_or_eps, relative=self.relative_epsilon,
+                    epsilons=self.rho_or_eps, epsilon_type=self.epsilon_type,
                     qac=False, fmt_kwargs=hp_dict)
                 dw_hp_results.load()
                 hparam_array[idxs] = dw_hp_results
@@ -331,10 +333,10 @@ class DWMethod(PGTMethodBase):
 
 
 class MCMethod(PGTMethodBase):
-    def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative, global_cfg, instance_sizes,
+    def __init__(self, name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, epsilon_type, global_cfg, instance_sizes,
                  rhos=None):
-        super(MCMethod, self).__init__(name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, relative,
-                                       global_cfg,instance_sizes, rhos=rhos)
+        super(MCMethod, self).__init__(name, method_cfg, gs_energies, llist, idxlist, rho_or_eps, epsilon_type,
+                                       global_cfg, instance_sizes, rhos=rhos)
 
         out_dir = Path(global_cfg['out_dir'])
         self.out_dir = out_dir
@@ -353,8 +355,8 @@ class MCMethod(PGTMethodBase):
             for i, l in enumerate(llist):
                 logging.info(f"L={l}")
                 pticm_tts_res[l] = import_pticm_dat_from_pkls(
-                    self.directory + self.file_pattern, idxlist, gs_energies[i, :], list(rho_or_eps),
-                    absolute=not relative, tol=1.0e-4, maxsweeps=2 ** 31,
+                    self.directory + self.file_pattern, idxlist, gs_energies[i, :], epsilon_type, list(rho_or_eps),
+                    tol=1.0e-4, maxsweeps=2 ** 31,
                     fmt_kwargs={'l': l})
 
             with open(tts_out_file, 'wb') as f:
@@ -423,25 +425,31 @@ class PGTScalingAnalysis:
         if self.ovewrite:
             logging.info(" ** Will overwrite existing ** ")
         # determine if epsilons are relative or absolute
-        self.relative_epsilon = False
+        self.epsilon_type = EpsilonType.ABSOLUTE
         if 'epsilon_type' in cfg:
-            if cfg['epsilon_type'] == 'relative':
-                self.relative_epsilon = True
+            if cfg['epsilon_type'] == 'rho' or cfg['epsilon_type'] == 'residual':
+                self.epsilon_type = EpsilonType.RESIDUAL
             elif cfg['epsilon_type'] == 'absolute':
-                self.relative_epsilon = False
+                self.epsilon_type = EpsilonType.ABSOLUTE
+            elif cfg['epsilon_type'] == 'relative':
+                self.epsilon_type = EpsilonType.RELATIVE
             else:
                 raise ValueError(f"Unknown epsilon_type {cfg['epsilon_type']}")
 
         self.epsilon_arr = np.asarray(cfg['epsilons'])
         # relative epsilons are scaled by J * instance_size
-        if self.relative_epsilon:
+        if self.epsilon_type == EpsilonType.RESIDUAL:
             self.rho_or_eps = self.epsilon_arr * self.J
             self.rhos = self.epsilon_arr
-            logging.info(f"Using relative epsilons:\n{self.rho_or_eps}")
+            logging.info(f"Using residual epsilons:\n{self.rho_or_eps}")
         else:
             self.rho_or_eps = self.epsilon_arr
             self.rhos = None
-            logging.info(f"Using absolute epsilons:\n{self.rho_or_eps}")
+            if self.epsilon_type == EpsilonType.ABSOLUTE:
+                logging.info(f"Using absolute epsilons:\n{self.rho_or_eps}")
+            else:
+                logging.info(f"Using relative epsilons:\n{self.rho_or_eps}")
+
         self.plot_epsilons = cfg.get('plot_epsilons', None)
         self.save_epsilons = cfg.get('save_epsilons', None)
         # Initialize RNG and bootstrap data
@@ -464,17 +472,29 @@ class PGTScalingAnalysis:
                 raise ValueError(f"Required key {k} not found in config file")
 
     def load_gs_energies(self):
-        gs_energies_dir = self.cfg['gs_energies']
+        gs_energies_path = Path(self.cfg['gs_energies'])
         # process ground state energies
-        gs_energies_file = self.out_dir / 'gs_energies.npy'
-        if gs_energies_file.is_file() and not self.ovewrite:
-            logging.info(f"Loading GS energies from {gs_energies_file}")
+        # If it is already a numpy file, use that
+        # Otherwise, extract them from PT-ICM results
+        if gs_energies_path.is_file():
+            if gs_energies_path.suffix == '.npy':
+                gs_energies_file = gs_energies_path
+            else:
+                raise ValueError("gs_energies must be a directory or .npy file")
+            logging.info(f"Using GS energies from {gs_energies_file}")
             gs_energies = np.load(str(gs_energies_file))
+            if gs_energies.shape[0] != len(self.llist) or gs_energies.shape[1] != len(self.idxlist):
+                raise ValueError(f"gs_energies array is wrong shape")
         else:
-            logging.info(f"Reading GS energies ...")
-            gs_energies = read_gs_energies(gs_energies_dir + self.cfg['file_patterns']['gs_energies'],
-                                           self.llist, self.idxlist)
-            np.save(str(gs_energies_file), gs_energies)
+            gs_energies_file = self.out_dir / 'gs_energies.npy'
+            if gs_energies_file.is_file() and not self.ovewrite:
+                logging.info(f"Loading GS energies from {gs_energies_file}")
+                gs_energies = np.load(str(gs_energies_file))
+            else:
+                logging.info(f"Reading GS energies ...")
+                gs_energies = read_gs_energies(str(gs_energies_path) + self.cfg['file_patterns']['gs_energies'],
+                                               self.llist, self.idxlist)
+                np.save(str(gs_energies_file), gs_energies)
         self.gs_energies = gs_energies
 
     def load_mc_sampler_data(self):
@@ -483,7 +503,7 @@ class PGTScalingAnalysis:
         self.mc_samplers = {}
         for k, v in mc_samplers.items():
             self.mc_samplers[k] = MCMethod(k, v, self.gs_energies, self.llist, self.idxlist, self.rho_or_eps,
-                                             self.relative_epsilon, self.cfg, self.instance_sizes, rhos=self.rhos)
+                                           self.epsilon_type, self.cfg, self.instance_sizes, rhos=self.rhos)
 
     def load_dw_sampler_data(self):
         # Read the quantum samplers configurations
@@ -491,7 +511,7 @@ class PGTScalingAnalysis:
         self.dw_samplers = {}
         for k, v in dw_samplers.items():
             self.dw_samplers[k] = DWMethod(k, v, self.gs_energies, self.llist, self.idxlist, self.rho_or_eps,
-                                             self.relative_epsilon, self.cfg, self.instance_sizes, rhos=self.rhos)
+                                           self.epsilon_type, self.cfg, self.instance_sizes, rhos=self.rhos)
 
     def draw_bootstrap_samples(self):
         for s in self.dw_samplers.values():
