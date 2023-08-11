@@ -151,11 +151,14 @@ class DWMethod(PGTMethodBase):
             method_cfg.pop('offset')
         if 'sgstats' in method_cfg:
             sgstats = method_cfg.pop('sgstats')
-            if sgstats:
-                self.q_stats = True
-                self.eps_stats = True
         else:
             sgstats = False
+        if sgstats:
+            self.q_stats = True
+            self.eps_stats = True
+        else:
+            self.q_stats = False
+            self.eps_stats = False
         self.annealing_times_str = method_cfg.pop('annealing_times')
         self.annealing_times = [float(tf) for tf in self.annealing_times_str]
         self.hyperparams = method_cfg
@@ -514,7 +517,7 @@ class PGTScalingAnalysis:
                 gs_energies = np.load(str(gs_energies_file))
             else:
                 logging.info(f"Reading GS energies ...")
-                gs_energies = read_gs_energies(str(gs_energies_path) + self.cfg['file_patterns']['gs_energies'],
+                gs_energies = read_gs_energies(str(gs_energies_path / self.cfg['file_patterns']['gs_energies']),
                                                self.llist, self.idxlist)
                 np.save(str(gs_energies_file), gs_energies)
         self.gs_energies = gs_energies
