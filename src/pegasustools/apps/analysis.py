@@ -149,6 +149,13 @@ class DWMethod(PGTMethodBase):
         method_cfg.pop('file_pattern')  # self.file_pattern
         if 'offset' in method_cfg:
             method_cfg.pop('offset')
+        if 'sgstats' in method_cfg:
+            sgstats = method_cfg.pop('sgstats')
+            if sgstats:
+                self.q_stats = True
+                self.eps_stats = True
+        else:
+            sgstats = False
         self.annealing_times_str = method_cfg.pop('annealing_times')
         self.annealing_times = [float(tf) for tf in self.annealing_times_str]
         self.hyperparams = method_cfg
@@ -169,13 +176,14 @@ class DWMethod(PGTMethodBase):
             hparam_array = np.ndarray(shape=hparam_lens, dtype=object)
             for idxs, HP in zip(product(*[range(n) for n in hparam_lens]), product(*hparam_iters)):
                 hp_dict = {k: v for (k, v) in zip(hparam_names, HP)}
-                logging.info(f"{HP}")
+                if len(HP) > 0:
+                    logging.info(f"{HP}")
                 dw_hp_results = DWaveInstanceResults(
                     self.directory+self.file_pattern, self.gs_energies,
                     self.llist, self.annealing_times_str, idxlist=self.idxlist,
                     gauges=None, samps_per_gauge=None,
                     epsilons=self.rho_or_eps, epsilon_type=self.epsilon_type,
-                    qac=False, fmt_kwargs=hp_dict)
+                    qac=False, eps_stats=self.eps_stats, q_stats=self.q_stats, fmt_kwargs=hp_dict)
                 dw_hp_results.load()
                 hparam_array[idxs] = dw_hp_results
             with open(tts_out_file, 'wb') as f:
@@ -191,6 +199,20 @@ class DWMethod(PGTMethodBase):
         self.pgs_arr = np.zeros(self.pgs_shape, dtype=float)
         for idxs, HP in zip(product(*[range(n) for n in hparam_lens]), product(*hparam_iters)):
             self.pgs_arr[idxs] = hparam_array[idxs].success_probs
+        if self.q_stats:
+            q_hparam_array = np.zeros((*self.hparam_shape, *self.tts_shape[1:], 2))
+            for idxs, HP in zip(product(*[range(n) for n in hparam_lens]), product(*hparam_iters)):
+                q_hparam_array[idxs] = hparam_array[idxs].q_stats_arr[:]
+            qs_dump_file = out_dir / f'samp_{self.name}_qs_dump.npy'
+            logging.info(f"Dumping q stats to {qs_dump_file}")
+            np.save(str(qs_dump_file), q_hparam_array)
+        if self.eps_stats:
+            eps_hparam_array = np.zeros((*self.hparam_shape, *self.tts_shape[1:], 2))
+            for idxs, HP in zip(product(*[range(n) for n in hparam_lens]), product(*hparam_iters)):
+                eps_hparam_array[idxs] = hparam_array[idxs].eps_stats_arr[:]
+            eps_dump_file = out_dir / f'samp_{self.name}_eps_dump.npy'
+            logging.info(f"Dumping eps stats to {eps_dump_file}")
+            np.save(str(eps_dump_file), eps_hparam_array)
 
         self.boots_samples = []
 

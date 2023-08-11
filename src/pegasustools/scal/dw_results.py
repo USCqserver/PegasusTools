@@ -5,7 +5,8 @@ import pandas as pd
 import yaml
 
 from pegasustools.scal import tts, EpsilonType
-from pegasustools.scal.stats import eval_pgs_tts, pgs_bootstrap, reduce_mean, boots_percentile, TTSStatistics
+from pegasustools.scal.stats import eval_pgs_tts, pgs_bootstrap, reduce_mean, boots_percentile, TTSStatistics, \
+    boots_overlap
 
 
 class DwRes:
@@ -13,6 +14,7 @@ class DwRes:
         self.file = file
         self.dw_res: pd.DataFrame = pd.read_hdf(file, "info")
         self.rep_groups = self.dw_res.groupby("rep")
+        self._samples_cache = None
         if inst is None:
             self.gs_energy = gs_energy
         else:
@@ -28,8 +30,10 @@ class DwRes:
         return np.max(count_series)
 
     def load_samples(self):
-        samps: pd.DataFrame = pd.read_hdf(self.file, key='samples')
-        return samps
+        if self._samples_cache is None:
+            samps: pd.DataFrame = pd.read_hdf(self.file, key='samples')
+            self._samples_cache = samps
+        return self._samples_cache
 
     def free_energy_by_gauge(self, beta=1.0):
         free_energies = []
@@ -58,6 +62,49 @@ class DwRes:
             n = np.sum(mine_rows['num_occurrences'])
             rep_pgs.append(n / m)
         return rep_pgs
+
+    def epsilon_summary(self):
+        """
+        Summarize the epsilons of this result
+        return: (mean_eps, mean_eps2)
+        tuple of ndarrays of shape [reps]
+        """
+        mean_eps_rep = []
+        mean_eps2_rep = []
+        for _, grp in self.rep_groups:
+            epsilons = np.asarray(grp['energy'] - self.gs_energy)
+            wi = grp['num_occurrences']
+            n = np.sum(wi)
+            epsilons_sq = epsilons**2
+            mean_eps = np.sum(epsilons * wi) / n
+            mean_eps2 = np.sum(epsilons_sq * wi) / n
+            mean_eps_rep.append(mean_eps)
+            mean_eps2_rep.append(mean_eps2)
+
+        mean_eps_rep = np.stack(mean_eps_rep)
+        mean_eps2_rep = np.stack(mean_eps2_rep)
+        return np.stack([mean_eps_rep, mean_eps2_rep], axis=1)
+
+    def qstats(self, rng: np.random.Generator=None):
+        if rng is None:
+            rng = np.random.default_rng()
+        _samps = self.load_samples()
+        nvars = len(_samps.columns)
+        df = pd.concat([_samps, self.dw_res], axis=1)
+        _dfreps = df.groupby('rep')
+
+        qs = []
+        for _, rep in _dfreps:
+            nsamps = len(rep)
+            si = np.asarray(rep.iloc[:nsamps, :nvars])
+            wi = np.asarray(rep.iloc[:, -2])
+            qi = boots_overlap(si, wi, rng) / nvars
+            qs.append(qi)
+        qs_arr = np.stack(qs)  # [reps]
+        q2 = np.mean(qs_arr ** 2, axis=-1)
+        q4 = np.mean(qs_arr ** 4, axis=-1)
+
+        return np.stack([q2, q4], axis=1)
 
     def evaluate_eps_counts(self, normalize=True):
         #cdfs = []
@@ -200,7 +247,8 @@ def read_dw_results2(file_template, rhos_list, l_list, tf_list, idx_list, gauges
 
 
 def read_dw_results3(file_template, eps_list, l_list, tf_list, idx_list, gauges,
-                     gs_energies, err_p=False, epsilon_type=EpsilonType.ABSOLUTE, fmt_kwargs=None):
+                     gs_energies, err_p=False, eps_stats=False, q_stats=False,
+                     epsilon_type=EpsilonType.ABSOLUTE, fmt_kwargs=None, rng: np.random.Generator = None):
     """
 
     :param file_template:  Formattable string including {l}, {n}, and {tf}
@@ -212,14 +260,18 @@ def read_dw_results3(file_template, eps_list, l_list, tf_list, idx_list, gauges,
     :param gs_energies: [L, Instances] array of ground state energies
     :param err_p: If the run is QAC, also return the probability that a logical qubit
             was broken
+    :param rng: Random number generator. Defaults to np.random.default_rng()
+        Only advanced if eps_stats or q_stats is set
     :return:
+
     """
 
     if fmt_kwargs is None:
         fmt_kwargs = {}
-
     pgs_arr = np.zeros((len(eps_list), len(l_list), len(tf_list), len(idx_list), gauges))
     errp_arr = np.zeros((len(l_list), len(tf_list), len(idx_list), gauges)) if err_p else None
+    q_stats_arr = np.zeros((len(l_list), len(tf_list), len(idx_list), gauges, 2)) if q_stats else None
+    eps_stats_arr = np.zeros((len(l_list), len(tf_list), len(idx_list), gauges, 2)) if eps_stats else None
 
     for i, l in enumerate(l_list):
         instance_size = None
@@ -246,11 +298,12 @@ def read_dw_results3(file_template, eps_list, l_list, tf_list, idx_list, gauges,
                 pgs_arr[:, i, j, k, :] = dw_res.pgs_by_gauge(eps=eps_arr, reps=reps)
                 if err_p:
                     errp_arr[i, j, k, :] = dw_res.error_p_by_gauge()
+                if q_stats:
+                    q_stats_arr[i, j, k, :, :] = dw_res.qstats(rng)
+                if eps_stats:
+                    eps_stats_arr[i, j, k, :, :] = dw_res.epsilon_summary()
 
-    if err_p:
-        return pgs_arr, errp_arr
-    else:
-        return pgs_arr
+    return pgs_arr, errp_arr, eps_stats_arr, q_stats_arr
 
 
 def read_sa_results(file_templates, eps_list, l_list, tf_list, idx_list,
@@ -346,7 +399,9 @@ class DWaveInstanceResults:
     """
     def __init__(self, path_fmt, gs_energies, llist, tflist, idxlist,
                  gauges=None, samps_per_gauge=None,
-                 epsilons=None, epsilon_type=False, qac=False, fmt_kwargs=None):
+                 epsilons=None, epsilon_type: EpsilonType=EpsilonType.ABSOLUTE,
+                 qac=False, eps_stats=False,
+                 q_stats=False, fmt_kwargs=None):
         if fmt_kwargs is None:
             fmt_kwargs = {}
         self.path_fmt = path_fmt
@@ -370,6 +425,10 @@ class DWaveInstanceResults:
         self.tts_array = None
         self.qac_error_probs = None
         self.qac = qac
+        self.eps_stats = eps_stats
+        self.q_stats = q_stats
+        self.eps_stats_arr = None
+        self.q_stats_arr = None
         self.fmt_kwargs = fmt_kwargs
 
         self.relative = epsilon_type
@@ -378,15 +437,14 @@ class DWaveInstanceResults:
         else:
             self.epsilons = np.asarray(epsilons)
 
-    def load(self):
+    def load(self, rng: np.random.Generator = None):
         if self.success_probs is None:
             _read_dwres = read_dw_results3(self.path_fmt, self.epsilons, self.llist, self.tflist,
-                                           self.idxlist, self.gauges, self.gs_energies, self.qac, epsilon_type=self.relative,
+                                           self.idxlist, self.gauges, self.gs_energies, self.qac,
+                                           epsilon_type=self.relative, rng=rng,
+                                           eps_stats=self.eps_stats, q_stats=self.q_stats,
                                            fmt_kwargs=self.fmt_kwargs)
-            if self.qac:
-                self.success_probs, self.qac_error_probs = _read_dwres
-            else:
-                self.success_probs = _read_dwres
+            self.success_probs, self.qac_error_probs, self.eps_stats_arr, self.q_stats_arr = _read_dwres
 
             # self.tts_array = eval_pgs_tts(self.success_probs, self.tflist, self.samps_per_gauge, nboots=self.nboots)
 

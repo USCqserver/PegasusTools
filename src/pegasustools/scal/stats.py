@@ -10,6 +10,31 @@ def not_nan(x):
     return x[np.logical_not(np.isnan(x))]
 
 
+def dirichlet_sample(x, n_boots, axis=-1, rng: np.random.Generator = None):
+    """
+    Generate a bayesian bootstrap sample vector
+
+    x: np.array with dimensions (pre_dims*, n, post_dims*)
+    where n is the size of axis
+    n_boots: number of bootstrap samples
+    returns: dirichlet sample with dimension (pre_dims*, n_boots, n)
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    pre_shape = x.shape[:axis]
+    pre_dims = np.prod(pre_shape)
+    n = x.shape[axis]
+    boots_dim = n_boots
+
+    # n_boots samples from the dirichlet distribution
+    alpha = np.full(n, 1)
+    dir_samp = rng.dirichlet(alpha, size=pre_dims * boots_dim)  # [size, n]
+    dir_samp = np.reshape(dir_samp, list(pre_shape) + [boots_dim, n])  # [..., n_boots, n]
+
+    return dir_samp
+
+
 def weighted_quantile(values, quantiles, sample_weight):
     """ Very close to numpy.percentile, but supports weights.
     NOTE: quantiles should be in [0, 1]!
@@ -190,6 +215,27 @@ def pgs_bootstrap(pgs_arr, nsamps, boot_samps, rng: np.random.Generator = None):
 
     return boots_samp
 
+
+def boots_overlap(s, w, rng: np.random.Generator):
+    """
+    Generate bootstrap samples of spin glass overlaps, where each sample has an integer statistical weight
+    s -
+    """
+    z = np.sum(w)
+    n = int(z)
+    n2 = n // 2
+    if np.alltrue(np.equal(w, 1)):  # potentially common case
+        idxs = np.arange(n)
+    else:
+        i = 0
+        idxs = np.zeros(n, dtype=int)
+        for j, wj in enumerate(w):
+            idxs[i:i+wj] = j
+            i += wj
+        assert i == n
+    rng.shuffle(idxs)
+    qsamp = np.sum(s[idxs[:n2], :] * s[idxs[n2:2 * n2], :], axis=-1)
+    return qsamp
 
 class TTSStatistics:
     def __init__(self, mean, err, inf_frac=None, l_list=None, tflist=None):
